@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>CS2 Player Intel</title>
+  <link rel="stylesheet" href="styles/tokens.css">
+  <link rel="stylesheet" href="styles/dashboard.css">
+  <script type="module" src="dashboard/app.js"></script>
+</head>
+<body class="dashboard">
+  <a class="skip-link" href="#content">Skip to content</a>
+  <aside class="sidebar">
+    <div class="logo">
+      <img src="icon.png" alt="" width="34" height="34">
+      <div><strong>CS2 Player Intel</strong><span id="appVersion">—</span></div>
+    </div>
+    <nav class="nav" aria-label="Views">
+      <button class="nav-item active" data-view="match" data-icon="match">Match</button>
+      <button class="nav-item" data-view="history" data-icon="clock">History</button>
+      <button class="nav-item" data-view="settings" data-icon="settings">Settings</button>
+      <button class="nav-item" data-view="diagnostics" data-icon="pulse">Diagnostics</button>
+      <button class="nav-item" data-view="help" data-icon="help">Help</button>
+    </nav>
+    <div class="sidebar-foot">
+      <div class="conn"><span id="connGsi" class="status-dot"></span><span>Game state</span><b id="connGsiText">—</b></div>
+      <div class="conn"><span id="connSteam" class="status-dot"></span><span>Steam</span><b id="connSteamText">—</b></div>
+      <div class="conn"><span class="status-dot ok"></span><span>Overlay</span><kbd id="hotkeyLabel">F8</kbd></div>
+      <button id="installUpdateBtn" class="btn primary block" hidden>Restart to update</button>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div class="topbar-title">
+        <h1 id="pageTitle">Match</h1>
+        <span id="matchPill" class="pill offline"><span class="dot"></span><span id="matchState">Waiting for CS2</span></span>
+      </div>
+      <div class="topbar-actions">
+        <button id="launchGameBtn" class="btn ghost" data-icon="play">Launch CS2</button>
+        <button id="refreshBtn" class="btn ghost" data-icon="refresh" title="Retry every provider; values that loaded before are kept if a retry fails">Refresh all</button>
+        <button id="overlayBtn" class="btn" data-icon="layers" title="Pin the overlay. In CS2: hold Tab (compact), Ctrl+Tab (expanded), or press Esc to click players.">Pin overlay</button>
+      </div>
+    </header>
+
+    <main id="content" class="content" tabindex="-1">
+      <!-- Match -->
+      <section class="view" id="view-match">
+        <section class="hero">
+          <div class="hero-side">
+            <div id="matchLine" class="hero-title">Waiting for CS2</div>
+            <div id="liveRound" class="hero-sub"></div>
+          </div>
+          <div id="liveScore" class="hero-score"></div>
+          <div id="heroWin" class="hero-win" hidden title="This app's own rough estimate from average Premier rating. Not a provider metric and not validated.">
+            <svg class="ring" viewBox="0 0 44 44" aria-hidden="true"><circle class="ring-track" cx="22" cy="22" r="19"/><circle id="winRing" class="ring-value" cx="22" cy="22" r="19"/></svg>
+            <div class="ring-label"><strong id="winValue" class="win-value">—</strong><span>rough estimate, unvalidated</span></div>
+            <div class="win-meta"><div class="win-bar"><span id="winBar"></span></div><div id="winDetail" class="muted small">Mark teammates and opponents to estimate</div></div>
+          </div>
+        </section>
+
+        <section id="setupGuide" class="panel guide" hidden aria-label="Getting started"></section>
+
+        <section id="liveRow" class="row-2">
+          <article class="panel">
+            <header class="panel-head"><h2>Your live stats</h2><span class="muted small">Game State Integration</span></header>
+            <div id="liveStats" class="live-stats">Waiting for CS2 match data…</div>
+          </article>
+          <article class="panel">
+            <header class="panel-head"><h2>Lobby</h2><span id="freshness" class="muted small"></span></header>
+            <div id="coverage" class="coverage"></div>
+          </article>
+        </section>
+
+        <section id="lobbySummary" class="panel lobby-summary" hidden aria-label="Lobby summary"></section>
+
+        <section class="section-head">
+          <div><h2>Players <span class="h2-note">historical profiles</span></h2><p class="muted small">Ranks and stats describe each player's past matches, not this match. Your live stats above come from CS2.</p><p id="rosterHint" class="muted small"></p></div>
+          <div class="add-player">
+            <input id="steamIdInput" class="input" placeholder="Add by SteamID64 or profile link" aria-label="Add a player">
+            <button id="addBtn" class="btn" data-icon="plus">Add</button>
+          </div>
+        </section>
+        <details class="roster-import panel">
+          <summary>Choose the players yourself</summary>
+          <p class="muted small">Paste numeric Steam profile links or SteamID64 values, one per line. This replaces the automatic list until the match ends.</p>
+          <textarea id="rosterInput" class="input" rows="4" spellcheck="false" aria-label="Steam IDs or numeric profile links" placeholder="https://steamcommunity.com/profiles/76561198012345678"></textarea>
+          <div class="button-row"><button id="selectRosterBtn" class="btn primary">Use these players</button><button id="autoRosterBtn" class="btn">Use automatic list</button></div>
+        </details>
+
+        <div id="playersBody" class="teams"></div>
+
+        <footer class="legend">
+          <button id="leetifyLink" class="link leetify">Data Provided by Leetify</button>
+          <span>CSRep and CSStats public pages · Steam public profiles</span>
+          <span><span class="v est">dotted</span> read from page text · <span class="na">N/A</span> unavailable, never zero · hover any value for its source</span>
+        </footer>
+      </section>
+
+      <!-- Settings -->
+      <section class="view" id="view-settings" hidden>
+        <div id="setupPanel" class="settings">
+          <div class="settings-top">
+            <div id="setupStatus" class="status-strip" aria-label="Status"></div>
+            <span id="saveState" class="save-state" role="status">Changes save automatically</span>
+          </div>
+          <div id="setupNotices" class="notices" hidden></div>
+          <div class="settings-layout">
+            <nav class="settings-nav" role="tablist" aria-orientation="vertical" aria-label="Settings sections">
+              <button class="settings-tab active" role="tab" aria-selected="true" data-section="general">General</button>
+              <button class="settings-tab" role="tab" aria-selected="false" tabindex="-1" data-section="overlay">Overlay</button>
+              <button class="settings-tab" role="tab" aria-selected="false" tabindex="-1" data-section="hotkeys">Hotkeys</button>
+              <button class="settings-tab" role="tab" aria-selected="false" tabindex="-1" data-section="data">Data sources</button>
+              <button class="settings-tab" role="tab" aria-selected="false" tabindex="-1" data-section="analysis">Analysis</button>
+              <button class="settings-tab" role="tab" aria-selected="false" tabindex="-1" data-section="notifications">Notifications</button>
+              <button class="settings-tab" role="tab" aria-selected="false" tabindex="-1" data-section="appearance">Appearance</button>
+              <button class="settings-tab" role="tab" aria-selected="false" tabindex="-1" data-section="database">Database</button>
+              <button class="settings-tab" role="tab" aria-selected="false" tabindex="-1" data-section="about">About</button>
+            </nav>
+            <div class="settings-sections">
+              <article class="panel settings-section" data-section="general">
+                <header class="panel-head"><h2>General</h2></header>
+                <label class="switch"><input id="launchCs2OnStart" type="checkbox"><span class="track"></span><span class="switch-text"><b>Launch CS2 with this app</b><small>Starts CS2 through Steam unless it is already running (not when the app starts with Windows)</small></span></label>
+                <label class="switch"><input id="startWithWindows" type="checkbox"><span class="track"></span><span class="switch-text"><b>Start with Windows</b><small>Starts in the notification area when you sign in</small></span></label>
+                <label class="switch"><input id="closeToTray" type="checkbox"><span class="track"></span><span class="switch-text"><b>Keep running when the window is closed</b><small>The overlay keeps working; quit from the notification-area icon</small></span></label>
+                <label class="switch"><input id="privacyMode" type="checkbox"><span class="track"></span><span class="switch-text"><b>Streaming privacy mode</b><small>Shows players as "Player 1, Player 2…" and hides SteamIDs and avatars in the dashboard, overlay and notifications</small></span></label>
+                <h3 class="sub-head">Game</h3>
+                <label class="field"><span class="field-label">CS2 cfg folder</span>
+                  <div class="input-row"><input id="cfgPath" class="input" placeholder="Auto-detect"><button class="btn picker" data-kind="cfg" data-target="cfgPath" type="button">Browse</button></div>
+                </label>
+                <label class="field"><span class="field-label">CS2 console.log <em>fallback</em></span>
+                  <div class="input-row"><input id="consolePath" class="input" placeholder="Auto-detect"><button class="btn picker" data-kind="console" data-target="consolePath" type="button">Browse</button></div>
+                </label>
+                <label class="field"><span class="field-label">Steamworks SDK folder <em>fallback</em></span>
+                  <div class="input-row"><input id="sdkPath" class="input" placeholder="Not needed when CS2 is installed"><button class="btn picker" data-kind="sdk" data-target="sdkPath" type="button">Browse</button></div>
+                </label>
+                <div class="button-row"><button id="installGsiBtn" class="btn">Install GSI config</button></div>
+              </article>
+
+              <article class="panel settings-section" data-section="overlay" hidden>
+                <header class="panel-head"><h2>Overlay</h2><span class="muted small">Pin the overlay to see changes live</span></header>
+                <label class="switch"><input id="holdTab" type="checkbox"><span class="track"></span><span class="switch-text"><b>Hold Tab in CS2</b><small>Compact view while held; Ctrl+Tab for the expanded view</small></span></label>
+                <label class="switch"><input id="escInteractive" type="checkbox"><span class="track"></span><span class="switch-text"><b>Clickable overlay in the Esc menu</b><small>Press Esc in a match to click players, expand their details and refresh them</small></span></label>
+                <label class="switch"><input id="scoreboardColours" type="checkbox"><span class="track"></span><span class="switch-text"><b>Teammate colours from the scoreboard</b><small>Off by default. While you hold Tab in a match, the app takes one picture of the CS2 window (not your screen) and reads each teammate's colour next to their avatar, then shows it as a ring in the overlay. It uses Windows screen capture, as OBS does, and never reads game memory. Some anti-cheats dislike capture of the game window, so turn this on at your own risk.</small></span></label>
+                <div class="field">
+                  <span class="field-label">Compact layout</span>
+                  <div class="segmented-input" role="radiogroup">
+                    <label><input type="radio" name="overlayLayout" value="right"><span>Right panel</span></label>
+                    <label><input type="radio" name="overlayLayout" value="left"><span>Left panel</span></label>
+                    <label><input type="radio" name="overlayLayout" value="top"><span>Top table</span></label>
+                  </div>
+                </div>
+                <div class="field">
+                  <span class="field-label">Compact columns <em>tick to show, arrows to reorder</em></span>
+                  <ol id="overlayColumnList" class="column-list"></ol>
+                </div>
+                <div class="field">
+                  <span class="field-label">Expanded view columns</span>
+                  <div class="checks">
+                    <label class="check"><input type="checkbox" name="group" value="performance"><span>Performance</span></label>
+                    <label class="check"><input type="checkbox" name="group" value="reputation"><span>Reputation</span></label>
+                    <label class="check"><input type="checkbox" name="group" value="faceit"><span>FACEIT</span></label>
+                    <label class="check"><input type="checkbox" name="group" value="map"><span>Current map</span></label>
+                    <label class="check"><input type="checkbox" name="group" value="leetify"><span>Leetify</span></label>
+                    <label class="check"><input type="checkbox" name="group" value="steam"><span>Steam</span></label>
+                  </div>
+                </div>
+                <div class="field-row">
+                  <label class="field"><span class="field-label">Monitor</span><select id="overlayDisplay" class="input"></select></label>
+                  <label class="field"><span class="field-label">Scale <output id="overlayScaleValue" class="range-value">100%</output></span><input id="overlayScale" class="range" type="range" min="0.5" max="2" step="0.05" value="1"></label>
+                  <label class="field"><span class="field-label">Opacity <output id="overlayOpacityValue" class="range-value">94%</output></span><input id="overlayOpacity" class="range" type="range" min="0.3" max="1" step="0.01" value="0.94"></label>
+                </div>
+                <div class="field-row">
+                  <label class="field"><span class="field-label">Horizontal offset</span><input id="overlayX" class="input" type="number" min="-10000" max="10000" value="0"></label>
+                  <label class="field"><span class="field-label">Vertical offset</span><input id="overlayY" class="input" type="number" min="-10000" max="10000" value="36"></label>
+                </div>
+                <p class="muted small">The overlay is a transparent window over CS2 in borderless or windowed mode. Exclusive fullscreen hides other windows; there, choose a second monitor above and pin the overlay to use it as a side panel.</p>
+              </article>
+
+              <article class="panel settings-section" data-section="hotkeys" hidden>
+                <header class="panel-head"><h2>Hotkeys</h2></header>
+                <div class="field">
+                  <span class="field-label">Pin overlay</span>
+                  <input id="overlayHotkey" class="input hotkey" readonly placeholder="Click, then press a key combination" aria-label="Overlay shortcut">
+                  <small>Click the field and press a key combination, for example F8 or Ctrl+Shift+I. Shortcuts used by other apps are refused.</small>
+                </div>
+                <div class="field">
+                  <span class="field-label">Clickable overlay</span>
+                  <input id="interactHotkey" class="input hotkey" readonly placeholder="Click, then press a key combination" aria-label="Clickable overlay shortcut">
+                  <small>Temporarily focuses the overlay for mouse navigation during a match. Press Esc or this shortcut again to exit, then click back into CS2. Tab views never take focus.</small>
+                </div>
+                <p class="muted small">Ctrl+Shift+O opens these settings from anywhere. In CS2: hold Tab for the compact view, Ctrl+Tab for the expanded view.</p>
+              </article>
+
+              <article class="panel settings-section" data-section="data" hidden>
+                <header class="panel-head"><h2>Data sources</h2></header>
+                <p class="muted small">Leetify needs no key or sign-in. The others are optional and add data. Keys are stored encrypted on this PC; the code next to a saved key is the start of its SHA-256 hash, so you can tell which key is saved without showing it.</p>
+                <label class="field"><span class="field-label">Steam Web API key <em>optional</em> <span id="steamKeyStatus" class="key-status"></span></span>
+                  <input id="steamKey" class="input" type="password" autocomplete="off" placeholder="Needed only for CS2 hours and game bans">
+                  <small>Free from steamcommunity.com/dev/apikey. Stored encrypted. <button id="removeSteamKeyBtn" class="link" type="button">Remove saved key</button></small>
+                </label>
+                <label class="field"><span class="field-label">FACEIT API key <em>optional</em> <span id="faceitKeyStatus" class="key-status"></span></span>
+                  <input id="faceitKey" class="input" type="password" autocomplete="off" placeholder="Adds FACEIT matches, K/D, HS % and profile links">
+                  <small>A free "server-side" key from developers.faceit.com. Without it, FACEIT level and Elo come from Leetify. Stored encrypted. <button id="removeFaceitKeyBtn" class="link" type="button">Remove saved key</button></small>
+                </label>
+                <label class="field"><span class="field-label">CSRep API key <em>optional</em> <span id="csrepKeyStatus" class="key-status"></span></span>
+                  <input id="csrepKey" class="input" type="password" autocomplete="off" placeholder="Optional: uses CSRep's API">
+                  <small>With a key, CSRep's API is used. <button id="removeKeyBtn" class="link" type="button">Remove saved key</button></small>
+                </label>
+                <label class="switch"><input id="csrepPagesEnabled" type="checkbox"><span class="track"></span><span class="switch-text"><b>Read CSRep public pages</b><small>Off by default. Without an API key, the Trust Score, verdict and breakdown are read from CSRep's public profile pages in a hidden browser window. Check CSRep's terms before turning this on.</small></span></label>
+                <label class="switch"><input id="csstatsEnabled" type="checkbox"><span class="track"></span><span class="switch-text"><b>Read CSStats pages</b><small>Off by default. Reads csstats.gg profile pages in a hidden browser window, using your CSStats sign-in. Check csstats.gg's terms before turning this on.</small></span></label>
+                <div class="field">
+                  <span class="field-label">CSStats sign-in <span id="csstatsStatus" class="key-status"></span></span>
+                  <div class="button-row"><button id="csstatsLoginBtn" class="btn" data-icon="external">Sign in to CSStats</button></div>
+                  <small>You sign in on csstats.gg itself, in a separate window; the app never sees your password. When you close that window, your own profile is looked up to check the sign-in.</small>
+                </div>
+                <label class="field"><span class="field-label">Retry failed lookups every (minutes, 0 = off)</span><input id="autoRetryMinutes" class="input" type="number" min="0" max="60" step="1" value="2"></label>
+                <div class="field">
+                  <span class="field-label">Source priority <em>when several sources publish a value</em></span>
+                  <ol id="sourcePriorityList" class="column-list priority-list"></ol>
+                  <small>Applies to K/D, win rate, HS %, FACEIT level and Elo, time to damage, rating and ADR. The first source with a value wins; the value's source shows on hover. API sources are first by default; CSStats and CSRep values are read from page text.</small>
+                </div>
+                <label class="field"><span class="field-label">Reuse results for players met again (minutes, 0 = always fetch)</span><input id="cacheMinutes" class="input" type="number" min="0" max="1440" step="5" value="30">
+                  <small>Saves requests when you re-queue with the same players. Kept in memory only; Refresh always fetches fresh data.</small></label>
+                <p class="muted small">Leetify, Steam profiles and CSRep need no account. Each source is queried at its own pace; source health per player is under Diagnostics.</p>
+              </article>
+
+              <article class="panel settings-section" data-section="analysis" hidden>
+                <header class="panel-head"><h2>Analysis</h2></header>
+                <label class="switch"><input id="profileIndicators" type="checkbox"><span class="track"></span><span class="switch-text"><b>Profile indicators</b><small>Normal / Review / Not enough data, from explained comparisons between sources (Premier vs FACEIT, hours, account age, Leetify aim)</small></span></label>
+                <label class="field"><span class="field-label">Minimum Leetify matches for tendencies and mechanics comparisons</span><input id="minSampleMatches" class="input" type="number" min="0" max="1000" step="5" value="30"></label>
+                <label class="switch"><input id="showWinEstimate" type="checkbox"><span class="track"></span><span class="switch-text"><b>Show rough win estimate</b><small>This app's own estimate from average Premier rating; not calibrated or validated, so off by default</small></span></label>
+                <p class="muted small">Indicators describe statistical discrepancies, never cheating, and there are no cheat probabilities. Thresholds are fixed rules of thumb: no reference dataset exists for percentiles against similar players, so none are shown.</p>
+              </article>
+
+              <article class="panel settings-section" data-section="notifications" hidden>
+                <header class="panel-head"><h2>Notifications</h2></header>
+                <label class="switch"><input id="notifications" type="checkbox"><span class="track"></span><span class="switch-text"><b>Windows notifications</b><small>Small, batched, once per match, only in warmup, freeze time or between rounds</small></span></label>
+                <div class="field">
+                  <span class="field-label">Notify me about</span>
+                  <div class="checks vertical">
+                    <label class="check"><input type="checkbox" name="notifyType" value="encounter"><span>Players met in earlier matches</span></label>
+                    <label class="check"><input type="checkbox" name="notifyType" value="strong"><span>Strong historical opponents (Premier 25,000+ or FACEIT 10)</span></label>
+                    <label class="check"><input type="checkbox" name="notifyType" value="review"><span>Profiles flagged for review</span></label>
+                    <label class="check"><input type="checkbox" name="notifyType" value="provider"><span>A data source unavailable for most of the lobby</span></label>
+                  </div>
+                </div>
+                <p class="muted small">Sound and duration follow Windows' notification settings; Windows may hold notifications while a game runs in full screen.</p>
+              </article>
+
+              <article class="panel settings-section" data-section="appearance" hidden>
+                <header class="panel-head"><h2>Appearance</h2></header>
+                <div class="field">
+                  <span class="field-label">Dashboard theme</span>
+                  <div class="segmented-input" role="radiogroup">
+                    <label><input type="radio" name="theme" value="dark"><span>Dark</span></label>
+                    <label><input type="radio" name="theme" value="light"><span>Light</span></label>
+                  </div>
+                </div>
+                <div class="field">
+                  <span class="field-label">Overlay style</span>
+                  <div class="segmented-input" role="radiogroup">
+                    <label><input type="radio" name="overlayStyle" value="standard"><span>Standard</span></label>
+                    <label><input type="radio" name="overlayStyle" value="minimal"><span>Minimal</span></label>
+                  </div>
+                  <small>Minimal: compact rows, no avatars or chips, a lighter background.</small>
+                </div>
+                <p class="muted small">Your team is cyan and opponents orange throughout; colour is kept for team, state and navigation.</p>
+              </article>
+
+              <article class="panel settings-section" data-section="database" hidden>
+                <header class="panel-head"><h2>Database</h2></header>
+                <dl id="dbStats" class="status-list"></dl>
+                <label class="field"><span class="field-label">Keep match history for (days, 0 = always)</span><input id="retentionDays" class="input" type="number" min="0" max="3650" step="1" value="0"></label>
+                <div class="button-row">
+                  <button id="exportHistoryBtn" class="btn" data-icon="download">Export as JSON</button>
+                  <button id="importHistoryBtn" class="btn">Import JSON…</button>
+                  <button id="clearHistoryBtn" class="btn">Delete match history</button>
+                  <button id="clearAllBtn" class="btn">Delete history and notes</button>
+                </div>
+                <p class="muted small">Import merges an export from this app (another PC or a backup): matches already here are skipped, and for notes the newer one wins. Stored only on this PC: matches, who was in them, sides, your results, values measured from Steam, CSRep, CSStats and FACEIT with their source times, and your notes. Leetify data is never stored.</p>
+              </article>
+
+              <article class="panel settings-section" data-section="about" hidden>
+                <header class="panel-head"><h2>About and updates</h2></header>
+                <p id="aboutVersion" class="muted"></p>
+                <p class="small">Made by <a href="https://github.com/KKNZ89" data-link="author">KKNZ89</a>. Source code, issues and releases: <a href="https://github.com/KKNZ89/cs2-player-intelligence-overlay" data-link="repo">github.com/KKNZ89/cs2-player-intelligence-overlay</a></p>
+                <label class="field"><span class="field-label">Update source <em>optional</em></span>
+                  <div class="input-row"><input id="updateSource" class="input" placeholder="GitHub releases (default)"><button class="btn picker" data-kind="updates" data-target="updateSource" type="button">Browse</button></div>
+                  <small id="updateStatus">Checks every 30 minutes, downloads in the background, and installs when you quit or restart.</small>
+                  <small>Leave blank to update from the project's GitHub releases. Every update is signed and checked before it installs.</small>
+                </label>
+                <label class="switch"><input id="autoInstallUpdates" type="checkbox"><span class="track"></span><span class="switch-text"><b>Install updates automatically</b><small>A downloaded update installs over the current version (no uninstall; settings and history are kept) as soon as CS2 isn't running and this window is closed. The app then restarts in the notification area. Otherwise it installs when you quit, or with Restart to update.</small></span>
+                </label>
+                <div class="button-row"><button id="checkUpdatesBtn" class="btn" data-icon="download">Check for updates</button></div>
+                <h3 class="sub-head">Disclaimer</h3>
+                <p class="small">This app is not a cheat. It does not inject code, read or change game memory, or hook CS2. It only shows statistics about the players in your current match from public sources: Leetify, FACEIT, CSStats, CSRep and Steam.</p>
+                <p class="small">It is provided as is, without warranty. The author is not responsible for how it is used, including misuse, harassment of other players, breaking a site's or game's terms, or action taken against your account. A Review flag is not proof of cheating; don't use it to accuse or report anyone.</p>
+                <p class="muted small">Data Provided by Leetify. CSRep, CSStats, Steam and FACEIT data belong to their providers.</p>
+              </article>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- History -->
+      <section class="view" id="view-history" hidden>
+        <div class="history-layout">
+          <article class="panel">
+            <header class="panel-head"><h2>Recorded matches</h2><span id="historyCount" class="muted small"></span></header>
+            <p id="historyEmpty" class="muted" hidden>No matches recorded yet. A match is saved here when it ends.</p>
+            <div class="table-wrap"><table class="table history-table"><thead><tr><th>Ended</th><th>Match</th><th>Result</th><th class="num" title="Other players: teammates · opponents">Players</th></tr></thead><tbody id="historyList"></tbody></table></div>
+            <div class="button-row"><button id="historyMoreBtn" class="btn" type="button" hidden>Show older matches</button></div>
+          </article>
+          <article id="historyMatch" class="panel" hidden>
+            <header class="panel-head"><h2 id="historyMatchTitle"></h2><span id="historyMatchWhen" class="muted small"></span></header>
+            <p class="muted small">Values are as they were recorded when the match ended. Leetify values are never stored.</p>
+            <div id="historyMatchPlayers"></div>
+          </article>
+        </div>
+      </section>
+
+      <!-- Diagnostics -->
+      <section class="view" id="view-diagnostics" hidden>
+        <div class="row-2">
+          <article class="panel">
+            <header class="panel-head"><h2>Status</h2></header>
+            <dl id="diagStatus" class="status-list"></dl>
+          </article>
+          <article class="panel">
+            <header class="panel-head"><h2>Recent log</h2><button id="openLogBtn" class="btn ghost small" data-icon="log">Open folder</button></header>
+            <pre id="diagLog" class="log">Loading…</pre>
+          </article>
+        </div>
+        <article class="panel">
+          <header class="panel-head"><h2>Provider results per player</h2><span class="muted small">Why a value is missing</span></header>
+          <div class="table-wrap"><table class="table"><thead><tr><th>Player</th><th>Leetify</th><th>CSRep</th><th>CSStats</th><th>Steam</th><th>Played before</th></tr></thead><tbody id="diagProviders"></tbody></table></div>
+        </article>
+      </section>
+
+      <!-- Help -->
+      <section class="view help" id="view-help" hidden>
+        <article class="panel">
+          <header class="panel-head"><h2>Getting started</h2></header>
+          <ol>
+            <li>The first time, go to Settings → General and click <b>Install GSI config</b>. This adds a small file to CS2's cfg folder so the game tells the app what is going on. Restart CS2 after that.</li>
+            <li>Start the app, then CS2. The app can also start CS2 for you (Settings → General).</li>
+            <li>Join a match. Players show up on the Match page as the app finds them. Lookups start right away.</li>
+            <li>In game, hold <kbd>Tab</kbd> to see the overlay. Hold <kbd>Ctrl</kbd>+<kbd>Tab</kbd> for more columns.</li>
+          </ol>
+          <p>CS2 has to run in borderless or windowed mode. In exclusive fullscreen nothing can be drawn over the game. Use the overlay on a second monitor instead (Settings → Overlay).</p>
+        </article>
+
+        <article class="panel">
+          <header class="panel-head"><h2>Keys</h2></header>
+          <dl class="help-keys">
+            <dt><kbd>Tab</kbd></dt><dd>Overlay while held.</dd>
+            <dt><kbd>Ctrl</kbd>+<kbd>Tab</kbd></dt><dd>Wider overlay with more stats.</dd>
+            <dt><kbd>Esc</kbd></dt><dd>When CS2's menu opens, the overlay becomes clickable. Click a player for details and profile links. Press Esc again to go back to the game.</dd>
+            <dt><kbd>F8</kbd></dt><dd>Keeps the overlay on screen until you press it again.</dd>
+            <dt><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>O</kbd></dt><dd>Opens this window from anywhere.</dd>
+          </dl>
+          <p>Teammate colours: turn on <b>Teammate colours from the scoreboard</b> in Settings → Overlay. Hold Tab for a moment in a Premier, Competitive or Wingman match and the overlay shows each teammate's CS2 colour as the ring around their avatar. It's off by default because it captures the CS2 window.</p>
+          <p>F8 and the clickable-overlay key can be changed in Settings → Hotkeys. Use your configured clickable-overlay key for mouse navigation: the overlay temporarily takes focus so you can click player cards and profile links, even if CS2 keeps its own cursor captured. Press Esc or the shortcut again to exit, then click back into CS2. Switching to another window also ends mouse navigation. The automatic Esc-menu view and Tab views do not take focus.</p>
+          <p><b>Not assigned</b> means the player's team is not known, not that the player is missing. Steam's recent-player list does not identify teams. Choose Teammate/Opponent on the Match page, or Team/Enemy in an Esc-menu player card. Players you spectate on your own side in Competitive, Premier or Wingman can be confirmed automatically; party-based and inferred assignments are labelled and can be corrected manually.</p>
+        </article>
+
+        <article class="panel">
+          <header class="panel-head"><h2>Where the numbers come from</h2></header>
+          <ul>
+            <li><b>Leetify</b>: aim, positioning, utility, rating and recent matches. Works without an account.</li>
+            <li><b>FACEIT</b>: level and Elo. Add your own free FACEIT key for match stats and profile links.</li>
+            <li><b>CSStats</b>: K/D, ADR, HLTV rating. Off until you turn it on in Settings → Data sources, and needs you to sign in on csstats.gg once.</li>
+            <li><b>CSRep</b>: trust score and verdict. Add a CSRep API key, or allow reading its public pages in Settings → Data sources.</li>
+            <li><b>Steam</b>: hours in CS2 and bans. Needs a Steam Web API key.</li>
+          </ul>
+          <p>A value shows N/A when the source didn't have it. Hover over it to see why. Private profiles and new accounts are the usual reasons. The Diagnostics page lists every lookup per player.</p>
+          <p>Your keys are stored encrypted on this PC. The app never asks for or stores a password. CSStats sign-in happens on their own site.</p>
+          <p>If a site asks for Cloudflare verification or cookie preferences, open its profile from a player card and complete the prompt yourself, then refresh the player. CSRep and CSStats windows share the browser sessions used for lookups. CSRep keeps its automatic "Deny all" choice for optional cookies when available; other consent prompts require your decision. The app never solves security challenges; sites may still restrict embedded browsers.</p>
+        </article>
+
+        <article class="panel">
+          <header class="panel-head"><h2>Profile flags</h2></header>
+          <p>The Profile column compares a player's Premier rating with their FACEIT level, CS2 hours, account age and Leetify aim. If two or more of these don't fit together, the player is marked <b>Review</b>. Hover over it to see which ones.</p>
+          <p>This is a hint, not proof. Smurfs, returning players and shared accounts all trip it. If there wasn't enough data to compare, it says so instead of guessing. You can turn the column off in Settings → Analysis.</p>
+        </article>
+
+        <article class="panel">
+          <header class="panel-head"><h2>Match history and notes</h2></header>
+          <p>Every match you finish is saved on this PC: who you played, with or against, and their stats at the time. The <b>History</b> page lists your matches; open one to see its players. Open a player on the Match page to see your past games together and add a note. Leetify data is never saved. You can export, import or clear the history in Settings → Database.</p>
+        </article>
+
+        <article class="panel">
+          <header class="panel-head"><h2>Privacy</h2></header>
+          <p>The app sends no usage data anywhere. It only contacts the sources above to look up players, and GitHub to check for updates.</p>
+          <p>Everything it keeps stays on this PC, in <code>%APPDATA%\nz.local.cs2playerintel</code>: your settings, encrypted API keys, match history and notes, the log, and the browser sessions for CSStats and CSRep. With teammate colours on, the last scoreboard picture that showed no colours is kept there too, as <code>scoreboard-last.png</code>. Settings → Database deletes the history and notes. When you uninstall, tick "Delete the application data" to remove that folder too.</p>
+        </article>
+
+        <article class="panel">
+          <header class="panel-head"><h2>When something is wrong</h2></header>
+          <ul>
+            <li><b>No players</b>: check that Game state says Connected (bottom left). If not, install the GSI config and restart CS2.</li>
+            <li><b>Some players are missing</b>: CS2 only reports the players it shows you, so some appear later in the match. You can add a SteamID by hand on the Match page.</li>
+            <li><b>Overlay doesn't show</b>: CS2 is probably in exclusive fullscreen. Switch to borderless.</li>
+            <li><b>A source shows nothing</b>: open Diagnostics. CSStats and CSRep sometimes ask for a browser check; open the player's CSRep or CSStats page once and the lookups work again.</li>
+          </ul>
+          <p>Still stuck? Open an issue on <a href="https://github.com/KKNZ89/cs2-player-intelligence-overlay/issues" data-link="issues">GitHub</a> and attach the log from Diagnostics → Open folder.</p>
+        </article>
+
+        <article class="panel">
+          <header class="panel-head"><h2>Disclaimer</h2></header>
+          <p>This app is not a cheat. It doesn't inject anything into CS2, doesn't read or change game memory, and gives no in-game advantage. It only shows stats about the players in your match that anyone can look up on Leetify, FACEIT, CSStats, CSRep and Steam.</p>
+          <p>It comes as is, with no warranty. The author isn't responsible for how you use it, including misuse, harassing other players, breaking a site's or game's terms, or anything that happens to your account. Use it at your own risk.</p>
+        </article>
+
+        <p class="muted small"><a href="https://github.com/KKNZ89/cs2-player-intelligence-overlay" data-link="repo">Source code</a> · <a href="https://github.com/KKNZ89/cs2-player-intelligence-overlay/releases" data-link="releases">Releases</a></p>
+      </section>
+    </main>
+  </div>
+
+  <aside id="details" class="drawer" hidden aria-label="Player details" role="dialog" tabindex="-1">
+    <header class="drawer-head">
+      <div id="detailsIdentity"></div>
+      <div class="drawer-actions">
+        <button id="detailsRefresh" class="icon-btn" title="Refresh this player" aria-label="Refresh this player" data-icon="refresh"></button>
+        <button id="detailsClose" class="icon-btn" title="Close (Esc)" aria-label="Close" data-icon="close"></button>
+      </div>
+    </header>
+    <nav class="tabs" role="tablist" aria-label="Player details"><button class="tab active" role="tab" aria-selected="true" data-tab="overview">Overview</button><button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="performance">Performance</button><button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="matches">Matches</button><button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="history">History</button><button class="tab" role="tab" aria-selected="false" tabindex="-1" data-tab="notes">Notes</button></nav>
+    <div id="detailsBody" class="drawer-body" role="tabpanel" tabindex="0"></div>
+  </aside>
+
+  <p id="message" class="toast" role="status"></p>
+</body>
+</html>

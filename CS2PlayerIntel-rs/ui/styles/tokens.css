@@ -1,0 +1,194 @@
+/* Design tokens, typography and shared value styles for the dashboard and the overlay. */
+@font-face {
+  font-family: "Inter";
+  src: url("../fonts/inter-latin.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Inter";
+  src: url("../fonts/inter-latin-ext.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+:root {
+  color-scheme: dark;
+  --bg: #07080b;
+  --bg-2: #0c0e12;
+  --panel: #101318;
+  --panel-2: #151920;
+  --panel-3: #1b2029;
+  --glass: rgba(16, 19, 24, .72);
+  --border: rgba(255, 255, 255, .07);
+  --border-2: rgba(255, 255, 255, .12);
+  --text: #eef1f5;
+  --text-2: #aeb6c2;
+  --muted: #6d7783;
+  --faint: #4a525d;
+  --brand: #f2aa3c;
+  --brand-soft: rgba(242, 170, 60, .14);
+  --ct: #5ea3ff;
+  --ct-soft: rgba(94, 163, 255, .14);
+  --t: #f3b14e;
+  --t-soft: rgba(243, 177, 78, .14);
+  /* Your team is cyan, opponents orange, whichever side (CT/T) they play. */
+  --ally: #3cc7d9;
+  --ally-soft: rgba(60, 199, 217, .14);
+  --opponent: #ff9a45;
+  --opponent-soft: rgba(255, 154, 69, .14);
+  --surface-top: rgba(7, 8, 11, .78);
+  --drawer: #0c0f13;
+  --toast: rgba(28, 33, 41, .96);
+  --good: #3fd08f;
+  --warn: #f0b84f;
+  --bad: #ff6b6b;
+  --live: #ff4d5e;
+  --radius-lg: 16px;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --shadow: 0 1px 0 rgba(255, 255, 255, .03) inset, 0 12px 32px rgba(0, 0, 0, .35);
+  --font: "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --ease: cubic-bezier(.2, .7, .2, 1);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { font: 400 13.5px/1.5 var(--font); color: var(--text); font-feature-settings: "cv11", "ss01", "ss03"; -webkit-font-smoothing: antialiased; }
+h1, h2, h3, p { margin: 0; }
+button, input, select, textarea { font: inherit; color: inherit; }
+[hidden] { display: none !important; }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+.icon { flex: none; vertical-align: middle; }
+kbd { display: inline-flex; align-items: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 5px; border: 1px solid var(--border-2); background: rgba(255, 255, 255, .04); font: 600 11px var(--font); color: var(--text-2); }
+
+/* Values: source on hover; dotted underline = read from page text; N/A with a reason. */
+.v { font-variant-numeric: tabular-nums; cursor: help; }
+.v small { font-size: .78em; color: var(--muted); margin-left: 1px; }
+.v.est { text-decoration: underline dotted rgba(174, 182, 194, .5); text-underline-offset: 3px; }
+.v.stale { opacity: .55; }
+.na { color: var(--faint); font-size: .88em; font-weight: 600; letter-spacing: .3px; cursor: help; }
+.na.loading { display: inline-block; width: 28px; height: 8px; border-radius: 4px; vertical-align: middle; background: linear-gradient(90deg, #171b22 0%, #262c36 50%, #171b22 100%); background-size: 200% 100%; animation: shimmer 1.5s linear 8; }
+.na.loading i { display: none; }
+@keyframes shimmer { to { background-position: -200% 0; } }
+
+.premier { display: inline-flex; align-items: center; justify-content: center; min-width: 52px; height: 22px; padding: 0 8px; border-radius: 5px; font-weight: 800; font-size: 12px; font-style: italic; letter-spacing: .2px; background: #1c212a; }
+.premier.tier-grey { color: #c9cfd6; background: linear-gradient(90deg, rgba(201, 207, 214, .2), rgba(201, 207, 214, .06)); }
+.premier.tier-cyan { color: #8fd5ff; background: linear-gradient(90deg, rgba(143, 213, 255, .22), rgba(143, 213, 255, .06)); }
+.premier.tier-blue { color: #84a8ff; background: linear-gradient(90deg, rgba(132, 168, 255, .24), rgba(132, 168, 255, .06)); }
+.premier.tier-purple { color: #c98bff; background: linear-gradient(90deg, rgba(201, 139, 255, .24), rgba(201, 139, 255, .06)); }
+.premier.tier-pink { color: #ff7ad9; background: linear-gradient(90deg, rgba(255, 122, 217, .22), rgba(255, 122, 217, .06)); }
+.premier.tier-red { color: #ff6a6a; background: linear-gradient(90deg, rgba(255, 106, 106, .22), rgba(255, 106, 106, .06)); }
+.premier.tier-gold { color: #ffd54d; background: linear-gradient(90deg, rgba(255, 213, 77, .24), rgba(255, 213, 77, .06)); }
+
+.faceit { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; font-size: 11px; font-weight: 800; background: #161a21; box-shadow: inset 0 0 0 2px currentColor; }
+.faceit.lvl-1 { color: #e8e8e8; }
+.faceit.lvl-2, .faceit.lvl-3 { color: #1ce400; }
+.faceit.lvl-4, .faceit.lvl-5, .faceit.lvl-6, .faceit.lvl-7 { color: #ffc800; }
+.faceit.lvl-8, .faceit.lvl-9 { color: #ff6309; }
+.faceit.lvl-10 { color: #fe1f00; }
+
+.trust { font-weight: 700; }
+.trust.good { color: var(--good); }
+.trust.warn { color: var(--warn); }
+.trust.bad { color: var(--bad); }
+.ban { color: var(--bad); font-weight: 700; }
+.with { color: #9ccafc; }
+.vs { color: #ffb2a6; }
+.you { display: inline-flex; align-items: center; height: 17px; padding: 0 6px; border-radius: 4px; background: var(--brand-soft); color: var(--brand); font-size: 9.5px; font-weight: 800; letter-spacing: .7px; vertical-align: 1px; margin-left: 6px; }
+
+.form { display: inline-flex; gap: 2px; }
+.form i { display: inline-grid; place-items: center; width: 15px; height: 18px; border-radius: 3px; font: normal 800 9.5px var(--font); }
+.form .win { background: rgba(63, 208, 143, .18); color: var(--good); }
+.form .loss { background: rgba(255, 107, 107, .18); color: var(--bad); }
+.form .tie, .form .unknown { background: #1f242c; color: var(--muted); }
+
+.avatar { width: 32px; height: 32px; border-radius: 9px; flex: none; object-fit: cover; }
+.avatar.initial { display: inline-grid; place-items: center; font-weight: 800; font-size: 13px; color: #0b0d11; }
+.hue-0 { background: #82b4ff; } .hue-1 { background: #8be3c6; } .hue-2 { background: #f7c56d; } .hue-3 { background: #f6a08d; }
+.hue-4 { background: #cba5ff; } .hue-5 { background: #a2d97e; } .hue-6 { background: #71d5e8; } .hue-7 { background: #f290c9; }
+.hue-8 { background: #dac28d; } .hue-9 { background: #aab7ff; } .hue-10 { background: #ffb67d; } .hue-11 { background: #bbd3a3; }
+
+/* Chips */
+.chip { display: inline-flex; align-items: center; gap: 4px; height: 19px; padding: 0 7px; border-radius: 999px; font-size: 10.5px; font-weight: 650; letter-spacing: .2px; white-space: nowrap; background: rgba(255, 255, 255, .05); color: var(--text-2); border: 1px solid var(--border); }
+.chip.ct { background: var(--ct-soft); color: var(--ct); border-color: rgba(94, 163, 255, .25); }
+.chip.t { background: var(--t-soft); color: var(--t); border-color: rgba(243, 177, 78, .25); }
+.chip.likely { border-style: dashed; }
+.chip.brand { background: var(--brand-soft); color: var(--brand); border-color: rgba(242, 170, 60, .25); }
+
+/* Score and team colours */
+.side-ct { color: var(--ct); }
+.side-t { color: var(--t); }
+.colon { color: var(--faint); margin: 0 .25em; }
+.pill { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: 999px; font-size: 11px; font-weight: 750; letter-spacing: .8px; text-transform: uppercase; background: rgba(255, 255, 255, .05); color: var(--muted); border: 1px solid var(--border); white-space: nowrap; }
+.pill .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.pill.live { color: #fff; background: rgba(255, 77, 94, .15); border-color: rgba(255, 77, 94, .45); }
+/* A few pulses when the match goes live, then still: endless animation repaints both windows. */
+.pill.live .dot { background: var(--live); animation: pulse 1.4s 3; }
+.pill.warmup { color: var(--warn); border-color: rgba(240, 184, 79, .35); background: rgba(240, 184, 79, .08); }
+@keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 77, 94, .7); } 50% { box-shadow: 0 0 0 6px rgba(255, 77, 94, 0); } }
+
+.win-bar { position: relative; height: 6px; border-radius: 99px; overflow: hidden; background: var(--t); }
+.win-bar span { display: block; height: 100%; width: 50%; background: var(--ct); transition: width .4s var(--ease); }
+.win-bar.side-T { background: var(--ct); }
+.win-bar.side-T span { background: var(--t); }
+.win-bar.unknown, .win-bar.unknown span { background: #1f242c; }
+.win-bar.thin { height: 3px; border-radius: 0; }
+.good { color: var(--good); }
+.bad { color: var(--bad); }
+.even { color: var(--warn); }
+
+/* Light theme (dashboard): off-white surfaces, charcoal text, deeper accents for contrast. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f4f6f8;
+  --bg-2: #eceff3;
+  --panel: #ffffff;
+  --panel-2: #f2f4f7;
+  --panel-3: #e6e9ee;
+  --glass: rgba(255, 255, 255, .8);
+  --border: rgba(16, 24, 40, .08);
+  --border-2: rgba(16, 24, 40, .15);
+  --text: #161a20;
+  --text-2: #3b434f;
+  --muted: #646d79;
+  --faint: #99a0aa;
+  --brand: #c37a0c;
+  --brand-soft: rgba(195, 122, 12, .12);
+  --ct: #2f6fd0;
+  --t: #b9741d;
+  --ally: #0b8597;
+  --ally-soft: rgba(11, 133, 151, .1);
+  --opponent: #c8590f;
+  --opponent-soft: rgba(200, 89, 15, .1);
+  --good: #12804f;
+  --warn: #a96a00;
+  --bad: #c43737;
+  --shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 8px 24px rgba(16, 24, 40, .06);
+  --surface-top: rgba(244, 246, 248, .85);
+  --drawer: #ffffff;
+  --toast: rgba(255, 255, 255, .98);
+}
+
+/* Profile indicator and status markers (shared by the dashboard and the overlay). */
+.indicator { display: inline-flex; align-items: center; height: 19px; padding: 0 7px; border-radius: 5px; font-size: 10.5px; font-weight: 700; letter-spacing: .2px; cursor: help; white-space: nowrap; border: 1px solid var(--border-2); color: var(--muted); }
+.indicator.normal { color: var(--text-2); }
+.indicator.review { color: var(--warn); border-color: currentColor; background: rgba(240, 184, 79, .1); }
+.indicator.review::before { content: '⚑'; margin-right: 4px; }
+.indicator.insufficient { border-style: dashed; }
+.status-icons { display: inline-flex; gap: 4px; margin-left: 6px; vertical-align: 1px; }
+.st { display: inline-flex; align-items: center; font-size: 11px; font-weight: 700; color: var(--muted); cursor: help; }
+.st.strongest { color: var(--brand); }
+.st.review { color: var(--warn); }
+.st.seen { color: var(--text-2); }
+
+/* CS2 teammate colours (panorama/styles/csgostyles.vcss: color-player-*), shown as the avatar ring. */
+.avatar-wrap.tc { padding: 2px; }
+.avatar-wrap.tc.tc-yellow { background: rgb(248, 246, 45); }
+.avatar-wrap.tc.tc-purple { background: rgb(192, 54, 153); }
+.avatar-wrap.tc.tc-green { background: rgb(29, 162, 132); }
+.avatar-wrap.tc.tc-blue { background: rgb(136, 206, 245); }
+.avatar-wrap.tc.tc-orange { background: rgb(255, 155, 37); }

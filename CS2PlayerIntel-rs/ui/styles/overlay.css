@@ -1,0 +1,107 @@
+/* Overlay: a transparent window drawn next to CS2's scoreboard. Click-through, except in the Esc menu. */
+.overlay-body { background: transparent; overflow: hidden; font-size: 12.5px; }
+.overlay-card { position: relative; background: linear-gradient(180deg, rgba(14, 17, 22, .9), rgba(9, 11, 14, .9)); border: 1px solid rgba(255, 255, 255, .09); border-radius: 14px; overflow: hidden; box-shadow: 0 18px 48px rgba(0, 0, 0, .55), inset 0 1px 0 rgba(255, 255, 255, .05); backdrop-filter: blur(14px); }
+
+.ov-head { display: flex; align-items: center; gap: 9px; padding: 10px 14px 8px; }
+.ov-head img { border-radius: 5px; }
+.ov-title { font-size: 11.5px; font-weight: 750; letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-2); }
+.ov-head .pill { margin-left: auto; height: 21px; padding: 0 8px; font-size: 10px; }
+
+.ov-score { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; padding: 2px 14px 10px; }
+.ov-scoreline { display: flex; align-items: center; font-size: 24px; font-weight: 800; letter-spacing: -.8px; font-variant-numeric: tabular-nums; line-height: 1; }
+.ov-scoreline span:first-child, .ov-scoreline span:last-child { font-size: 10.5px; font-weight: 800; letter-spacing: 1.2px; margin: 0 8px; }
+.ov-scoreline .colon { margin: 0 5px; }
+.ov-round { color: var(--muted); font-size: 11.5px; }
+.ov-win { display: flex; align-items: baseline; gap: 6px; padding: 4px 10px; border-radius: 8px; background: rgba(255, 255, 255, .04); }
+.ov-win { opacity: .75; }
+.ov-win span { font-size: 9.5px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--muted); }
+.ov-win strong { font-size: 13px; font-weight: 750; font-variant-numeric: tabular-nums; }
+.ov-panel .issues { display: flex; flex-wrap: wrap; gap: 2px 10px; margin-top: 4px; font-size: 11px; color: var(--warn); }
+.ov-panel .issues b { font-weight: 650; color: var(--muted); margin-right: 3px; }
+.chip.possible { border-style: dashed; color: var(--muted); }
+
+.ov-hint { margin: 0; padding: 7px 14px; font-size: 11.5px; font-weight: 600; color: #0b0d11; background: linear-gradient(90deg, var(--brand), #f7c66c); }
+.ov-live { margin: 0; padding: 7px 14px; color: var(--muted); font-size: 11.5px; border-bottom: 1px solid rgba(255, 255, 255, .05); }
+.ov-live.available { color: var(--text); font-weight: 600; }
+
+.avatar-wrap { display: inline-flex; border-radius: 7px; padding: 1.5px; background: rgba(255, 255, 255, .08); flex: none; }
+.avatar-wrap.team { background: var(--ally); }
+.avatar-wrap.enemy { background: var(--opponent); }
+.ov-name { display: flex; align-items: center; gap: 8px; min-width: 0; font-weight: 650; }
+.ov-name > .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.ov-name .status-icons { margin-left: 0; flex: none; }
+.ov-name .avatar { width: 20px; height: 20px; border-radius: 5.5px; font-size: 10px; }
+
+/* Side panel: per-team grid, columns aligned like a scoreboard. */
+.ov-team { padding-bottom: 4px; }
+.ov-team-head { display: flex; align-items: baseline; gap: 8px; padding: 9px 14px 3px; }
+.ov-team-name { display: inline-flex; align-items: center; gap: 7px; font-size: 10.5px; font-weight: 800; letter-spacing: 1.1px; text-transform: uppercase; color: var(--text-2); }
+.ov-team-name::before { content: ''; width: 3px; height: 12px; border-radius: 2px; background: var(--faint); }
+.ov-team.team .ov-team-name { color: var(--ally); }
+.ov-team.team .ov-team-name::before { background: var(--ally); }
+.ov-team.enemy .ov-team-name { color: var(--opponent); }
+.ov-team.enemy .ov-team-name::before { background: var(--opponent); }
+.ov-team-meta { margin-left: auto; color: var(--muted); font-size: 10.5px; }
+.ov-grid { display: grid; grid-template-columns: var(--ov-cols, minmax(0, 1fr) 40px 54px 30px 28px 44px 32px 50px); align-items: center; gap: 5px; padding: 0 14px; }
+.ov-grid .indicator { height: 17px; padding: 0 5px; font-size: 9.5px; }
+.ov-grid > span:not(:first-child) { text-align: right; }
+.ov-cols { padding-top: 2px; padding-bottom: 4px; font-size: 9.5px; font-weight: 700; letter-spacing: .7px; text-transform: uppercase; color: #59626e; }
+.ov-row { height: 30px; font-variant-numeric: tabular-nums; border-radius: 0; }
+.ov-row:nth-of-type(odd) { background: rgba(255, 255, 255, .022); }
+.ov-row.self .ov-name > .nm { color: var(--brand); }
+.ov-row .premier { min-width: 46px; height: 19px; padding: 0 6px; font-size: 11px; }
+.ov-row .faceit { width: 19px; height: 19px; font-size: 10px; }
+
+/* Table layouts (top compact, expanded and Esc menu). */
+.overlay-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.overlay-table th { padding: 7px 10px; font-size: 9.5px; font-weight: 700; letter-spacing: .7px; text-transform: uppercase; color: #59626e; text-align: left; white-space: nowrap; }
+.overlay-table td { padding: 5px 10px; font-size: 12px; white-space: nowrap; border-top: 1px solid rgba(255, 255, 255, .04); }
+.overlay-table td .ov-name { max-width: 220px; }
+.ov-colgroups th { text-align: center; color: var(--brand); padding-bottom: 2px; }
+.ov-colgroups th:not(:first-child) { border-bottom: 1px solid rgba(242, 170, 60, .3); }
+.overlay-table .ov-group td { padding-top: 10px; font-size: 10.5px; font-weight: 800; letter-spacing: 1.1px; text-transform: uppercase; color: var(--text-2); border-top: 0; }
+.overlay-table .ov-group .ov-team-meta { margin-left: 10px; text-transform: none; letter-spacing: 0; font-weight: 500; }
+.overlay-table .ov-group.team td { color: var(--ally); }
+.overlay-table .ov-group.enemy td { color: var(--opponent); }
+.overlay-table tr.self .ov-name > span:last-child { color: var(--brand); }
+.overlay-table.interactive tr.clickable { cursor: pointer; transition: background .12s; }
+.overlay-table.interactive tr.clickable:hover, .overlay-table.interactive tr.open { background: rgba(255, 255, 255, .05); }
+.ov-chevron { width: 24px; color: var(--muted); text-align: right; }
+.ov-chevron .icon { transition: transform .15s var(--ease); }
+tr.open .ov-chevron .icon { transform: rotate(90deg); color: var(--text); }
+.ov-detail-row > td { padding: 0 10px 12px; border-top: 0; }
+
+/* Expanded player card (Esc menu) */
+.ov-panel { padding: 12px 14px; border-radius: 12px; background: rgba(255, 255, 255, .035); border: 1px solid rgba(255, 255, 255, .07); }
+.ov-panel-head, .ov-panel-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.ov-panel-head > div:first-child { display: flex; gap: 5px; }
+.ov-panel-foot { margin-top: 10px; }
+.ov-actions { display: flex; gap: 6px; }
+.ov-btn { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px; border-radius: 7px; border: 1px solid rgba(255, 255, 255, .12); background: rgba(255, 255, 255, .05); color: var(--text); font-size: 11.5px; font-weight: 650; cursor: pointer; }
+.ov-btn:hover { background: rgba(255, 255, 255, .1); }
+.ov-btn.team.active, .ov-btn.team:hover { background: var(--ally-soft); border-color: var(--ally); color: var(--ally); }
+.ov-btn.enemy.active, .ov-btn.enemy:hover { background: var(--opponent-soft); border-color: var(--opponent); color: var(--opponent); }
+.ov-btn.spin .icon { animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.ov-metrics { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; margin-top: 10px; }
+.ov-metric { display: flex; flex-direction: column; gap: 2px; padding: 7px 9px; border-radius: 8px; background: rgba(0, 0, 0, .25); }
+.ov-metric > span { font-size: 9.5px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: #6b7581; }
+.ov-metric b { font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ov-form { display: inline-flex; align-items: center; gap: 8px; font-size: 10.5px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); }
+.ov-links { display: flex; gap: 12px; }
+.ov-link { display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: none; color: var(--text-2); font-size: 11.5px; font-weight: 600; cursor: pointer; }
+.ov-link:hover { color: var(--text); }
+
+.ov-empty { margin: 0; padding: 18px 14px; color: var(--muted); }
+.ov-foot { display: flex; justify-content: space-between; gap: 4px 10px; padding: 7px 14px; border-top: 1px solid rgba(255, 255, 255, .05); font-size: 10px; color: #59626e; }
+/* The side panel is narrow: one line each. */
+.layout-left .ov-foot, .layout-right .ov-foot { flex-direction: column; }
+.view-expanded .overlay-card, .view-interactive .overlay-card { background: linear-gradient(180deg, rgba(14, 17, 22, .95), rgba(9, 11, 14, .95)); }
+
+/* Minimal style: compact rows, no avatars or chips, a lighter background. */
+.style-minimal .overlay-card { background: rgba(8, 10, 13, .55); box-shadow: none; }
+.style-minimal .avatar-wrap, .style-minimal .ov-panel .chips, .style-minimal .ov-live, .style-minimal .ov-foot > span:last-child { display: none; }
+.style-minimal .ov-row { height: 22px; font-size: 11.5px; }
+.style-minimal .ov-head { padding-top: 6px; padding-bottom: 6px; }
+.style-minimal .ov-team-head { padding-top: 5px; }
+.style-minimal .overlay-table td { padding-top: 3px; padding-bottom: 3px; }

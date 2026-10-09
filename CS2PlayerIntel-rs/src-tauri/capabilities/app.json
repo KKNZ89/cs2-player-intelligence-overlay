@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "app",
+  "description": "The app's own two pages. Provider pages (CSRep, CSStats) get no capabilities, so they cannot reach any command.",
+  "windows": ["main", "overlay"],
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+}

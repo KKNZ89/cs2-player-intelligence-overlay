@@ -1,0 +1,57 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "CS2 Player Intel",
+  "version": "../package.json",
+  "identifier": "nz.local.cs2playerintel",
+  "build": {
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [],
+    "security": {
+      "csp": {
+        "default-src": "'self'",
+        "script-src": "'self'",
+        "style-src": "'self'",
+        "font-src": "'self'",
+        "img-src": "'self' data: https://avatars.akamai.steamstatic.com https://avatars.steamstatic.com https://avatars.cloudflare.steamstatic.com https://avatars.fastly.steamstatic.com",
+        "connect-src": "ipc: http://ipc.localhost",
+        "base-uri": "'none'",
+        "form-action": "'none'"
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
+    "createUpdaterArtifacts": true,
+    "publisher": "KKNZ89",
+    "homepage": "https://github.com/KKNZ89/cs2-player-intelligence-overlay",
+    "category": "Utility",
+    "shortDescription": "CS2 match companion overlay",
+    "longDescription": "Shows public stats (Leetify, FACEIT, CSStats, CSRep, Steam) about the players in your CS2 match in an overlay. Not a cheat: no injection, no memory reading.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDZCN0RERUI1NjQ2QzZFMjcKUldRbmJteGt0ZDU5YTd2dCtMYzJVOHVhL0UyanZDRmpxakZnN0NWeVZiMTZoWFVUTko1cDVRMGUK",
+      "windows": {
+        "installMode": "passive"
+      },
+      "dangerousInsecureTransportProtocol": true
+    }
+  }
+}

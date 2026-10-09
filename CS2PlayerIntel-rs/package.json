@@ -1,0 +1,28 @@
+{
+  "name": "cs2-player-intel",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Local CS2 companion: identifies the players in your match and shows CSRep, Leetify, CSStats and Steam data in an overlay.",
+  "license": "MIT",
+  "author": "KKNZ89 (https://github.com/KKNZ89)",
+  "homepage": "https://github.com/KKNZ89/cs2-player-intelligence-overlay",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/KKNZ89/cs2-player-intelligence-overlay.git"
+  },
+  "type": "module",
+  "scripts": {
+    "start": "tauri dev",
+    "build": "tauri build",
+    "check": "npm run lint && npm test && npm run smoke",
+    "lint": "cargo fmt --manifest-path src-tauri/Cargo.toml --check && cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings",
+    "test": "cargo test --manifest-path src-tauri/Cargo.toml && node --test \"tests-ui/*.test.mjs\"",
+    "smoke": "cargo build --manifest-path src-tauri/Cargo.toml && node scripts/smoke.mjs",
+    "screenshots": "node scripts/screenshots.mjs",
+    "probe:steam": "node scripts/probe-steam.mjs",
+    "dist": "node scripts/dist.mjs"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.1"
+  }
+}

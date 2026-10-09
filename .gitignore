@@ -1,0 +1,48 @@
+# Generated dependencies, build output, and release assets.
+node_modules/
+target/
+release/
+CS2PlayerIntel-rs/src-tauri/gen/
+*.exe
+*.msi
+*.dll
+*.zip
+
+# Local credentials and private signing material. Public verification keys stay tracked.
+.env
+.env.*
+!.env.example
+.ssh/
+.cs2intel/
+*.key
+*.pem
+*.p12
+*.pfx
+*.ppk
+*.secret
+id_rsa
+id_ed25519
+id_ecdsa
+credentials.json
+secrets.json
+
+# Application settings, browser sessions, and personal match history.
+settings.json
+settings.json.*
+webview/
+webview-*/
+history.sqlite*
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+*.db
+*.db-journal
+gamestate_integration_cs2playerintel.cfg
+logs/
+*.log
+*.tmp
+# No plain-text files in the repository (licences and notes are Markdown).
+*.txt
+.DS_Store
+Thumbs.db

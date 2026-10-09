@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>CS2 Player Intel Overlay</title>
+  <link rel="stylesheet" href="styles/tokens.css">
+  <link rel="stylesheet" href="styles/overlay.css">
+  <script type="module" src="overlay/overlay.js"></script>
+</head>
+<body class="overlay-body layout-right view-compact">
+  <main class="overlay-card">
+    <header class="ov-head">
+      <img src="icon.png" alt="" width="18" height="18">
+      <span id="overlayMatch" class="ov-title">Waiting for CS2</span>
+      <span id="overlayPill" class="pill offline"><span class="dot"></span><span id="overlayState">Waiting</span></span>
+    </header>
+    <section class="ov-score">
+      <div id="ovScore" class="ov-scoreline"></div>
+      <div id="ovRound" class="ov-round"></div>
+      <div class="ov-win" title="This app's own rough estimate from average Premier rating; not validated"><span>Est. win</span><strong id="ovWinValue">—</strong></div>
+    </section>
+    <div class="win-bar thin"><span id="ovWinBar"></span></div>
+    <p id="ovHint" class="ov-hint" hidden></p>
+    <p id="overlayLiveStats" class="ov-live">Waiting for CS2 match data…</p>
+    <div id="overlayPlayers" class="ov-players"></div>
+    <footer class="ov-foot">
+      <span id="overlayCount"></span>
+      <span>Historical profiles · Data Provided by Leetify · dotted = page-text estimate · N/A = unavailable</span>
+    </footer>
+  </main>
+</body>
+</html>
