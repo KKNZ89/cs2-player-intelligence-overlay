@@ -105,3 +105,9 @@ tr.open .ov-chevron .icon { transform: rotate(90deg); color: var(--text); }
 .style-minimal .ov-head { padding-top: 6px; padding-bottom: 6px; }
 .style-minimal .ov-team-head { padding-top: 5px; }
 .style-minimal .overlay-table td { padding-top: 3px; padding-bottom: 3px; }
+
+.ov-notes { margin-top: 10px; display: grid; gap: 8px; }
+.ov-notes .note-list li { padding: 6px 8px; }
+.ov-note-add { display: flex; gap: 6px; }
+.ov-note-input { flex: 1; min-width: 0; height: 28px; padding: 0 10px; border-radius: 7px; border: 1px solid rgba(255, 255, 255, .14); background: rgba(0, 0, 0, .35); color: var(--text); font: inherit; font-size: 12px; }
+.ov-note-input:focus { outline: none; border-color: var(--brand); }

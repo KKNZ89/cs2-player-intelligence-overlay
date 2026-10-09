@@ -35,13 +35,15 @@ const SHIM = `(() => {
     encounters: [{ endedAt: t - 2 * day, map: 'de_mirage', mode: 'premier', result: 'loss', side: 'enemy' }, { endedAt: t - 15 * day, map: 'de_ancient', mode: 'premier', result: 'win', side: 'enemy' }, { endedAt: t - 40 * day, map: 'de_nuke', mode: 'competitive', result: 'loss', side: 'enemy' }],
     progression: [{ provider: 'steam', metric: 'hoursCs2', first: { value: 120, measuredAt: t - 40 * day }, previous: { value: 160, measuredAt: t - 15 * day }, current: { value: 190, measuredAt: t - 2 * day }, measurements: 3 },
       { provider: 'csrep', metric: 'trust', first: { value: 97, measuredAt: t - 40 * day }, previous: null, current: { value: 99, measuredAt: t - 2 * day }, measurements: 2 }],
-    note: { text: 'Strong AWP on B site. Plays with Halcyon.', updatedAt: t - 2 * day } };
+    notes: [{ id: 2, text: 'Strong AWP on B site. Plays with Halcyon.', createdAt: t - 2 * day, map: 'de_mirage', mode: 'premier', side: 'enemy', matchId: 42, result: 'loss' },
+      { id: 1, text: 'Calls out well, friendly.', createdAt: t - 15 * day, map: 'de_ancient', mode: 'premier', side: 'team', matchId: 40, result: 'win' }] };
   const MAPS = [['de_mirage', 'premier', 'loss'], ['de_ancient', 'premier', 'win'], ['de_inferno', 'competitive', 'win'], ['de_nuke', 'premier', 'tie'], ['de_dust2', 'wingman', 'win'], ['de_anubis', 'premier', 'loss']];
   const MATCHES = { total: 42, matches: MAPS.map(([map, mode, result], i) => ({ id: 42 - i, endedAt: t - (i * 1.4 + 0.2) * day, map, mode, result, team: mode === 'wingman' ? 1 : 4, enemy: mode === 'wingman' ? 2 : 5, players: mode === 'wingman' ? 3 : 9 })) };
   const PEOPLE = [['Kestrel', 'team', 3, 3120, 96, 8, 2210, 1.21, 48], ['nova', 'team', 1, 1860, 88, 5, 1540, 0.98, 41], ['Brightside', 'team', 2, 2100, 93, 6, null, 1.10, 47], ['mxlk', 'team', 1, null, null, null, null, null, null],
     ['ZeroDay', 'enemy', 4, 190, 99, 10, 2950, 1.65, 58], ['Halcyon', 'enemy', 2, 2780, 71, 7, 1890, 1.27, 50], ['r1ft', 'enemy', 1, 1420, 90, 6, 1610, 1.01, 44], ['Paxton', 'enemy', 1, 140, 77, 2, 980, 1.33, 52], ['Lumen', 'enemy', 1, 760, 92, 5, 1450, 0.94, 39]];
   const MATCH = { id: 42, endedAt: MATCHES.matches[0].endedAt, map: 'de_mirage', mode: 'premier', result: 'loss', selfId: '76561198012345670',
     players: PEOPLE.map(([name, side, met, hours, trust, level, elo, kd, hs], i) => ({ steamId: String(76561198012345671n + BigInt(i)), name, side, met, hasNote: name === 'Halcyon',
+      notes: name === 'Halcyon' ? [{ id: 3, text: 'Rushes B with the AWP every pistol round.', createdAt: MATCHES.matches[0].endedAt - 900000, map: 'de_mirage', mode: 'premier', side: 'enemy', matchId: 42, result: 'loss' }] : [],
       values: Object.fromEntries([['steam.hoursCs2', hours], ['csrep.trust', trust], ['faceit.level', level], ['faceit.elo', elo], ['csstats.kd', kd], ['csstats.hs', hs]].filter(([, v]) => v !== null)) })) };
   const params = new URLSearchParams(location.search);
   const state = fetch('/__state?variant=' + (params.get('variant') || 'default')).then(r => r.json());

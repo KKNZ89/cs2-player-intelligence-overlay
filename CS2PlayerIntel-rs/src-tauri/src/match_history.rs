@@ -1,6 +1,8 @@
 //! The app's own record of finished matches, in a local SQLite database (history.sqlite in the app data
 //! folder): who was in each match, the sides you marked, your result, values measured from Steam, CSRep,
-//! CSStats and FACEIT at that time (each with its source time), and your notes on players.
+//! CSStats and FACEIT at that time (each with its source time), and your notes on players: each note
+//! keeps when it was written, the map and mode, whether the player was with or against you, and the
+//! match it belongs to.
 //!
 //! Leetify asks apps not to store its data, so no Leetify value is ever written here; Leetify history is
 //! shown live from Leetify instead. A snapshot is never updated: it records what was measured when.
@@ -20,7 +22,8 @@ CREATE TABLE IF NOT EXISTS matches (
     map TEXT NOT NULL DEFAULT '',
     mode TEXT NOT NULL DEFAULT '',
     result TEXT NOT NULL DEFAULT 'unknown',
-    self_id TEXT NOT NULL
+    self_id TEXT NOT NULL,
+    started_at INTEGER
 );
 CREATE TABLE IF NOT EXISTS encounters (
     match_id INTEGER NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
@@ -39,12 +42,35 @@ CREATE TABLE IF NOT EXISTS snapshots (
     measured_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS snapshots_by_player ON snapshots(steam_id, metric, measured_at);
-CREATE TABLE IF NOT EXISTS notes (
-    steam_id TEXT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS player_notes (
+    id INTEGER PRIMARY KEY,
+    steam_id TEXT NOT NULL,
     text TEXT NOT NULL,
-    updated_at INTEGER NOT NULL
+    created_at INTEGER NOT NULL,
+    map TEXT NOT NULL DEFAULT '',
+    mode TEXT NOT NULL DEFAULT '',
+    side TEXT NOT NULL DEFAULT '',
+    match_started_at INTEGER,
+    match_id INTEGER REFERENCES matches(id) ON DELETE SET NULL
 );
+CREATE INDEX IF NOT EXISTS player_notes_by_player ON player_notes(steam_id, created_at);
 ";
+
+/// Longest note accepted.
+const MAX_NOTE_CHARS: usize = 2000;
+
+/// Where a note is written: the match in progress (or the one just finished), or a recorded match.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct NoteContext {
+    pub map: String,
+    pub mode: String,
+    /// The player's side relative to you: "team", "enemy" or "".
+    pub side: String,
+    /// Start time of the live match, which links the note once the match is recorded.
+    pub match_started_at: Option<i64>,
+    /// A recorded match, when the note is written from the History page.
+    pub match_id: Option<i64>,
+}
 /// One metric's distinct measurements: provider, metric, (value, measured at) oldest first.
 type Series = (String, String, Vec<(f64, i64)>);
 
@@ -119,11 +145,29 @@ fn open_connection(file: &Path) -> rusqlite::Result<Connection> {
     conn.pragma_update(None, "journal_mode", "WAL")?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
     conn.execute_batch(SCHEMA)?;
+    upgrade(&conn)?;
     Ok(conn)
 }
 
+/// Brings a database made with an older layout up to date: a match start time on each match, and the
+/// single note per player (`notes` table) turned into dated notes.
+fn upgrade(conn: &Connection) -> rusqlite::Result<()> {
+    let has_started_at: bool = conn.query_row("SELECT COUNT(*) FROM pragma_table_info('matches') WHERE name = 'started_at'", [], |row| row.get(0))?;
+    if !has_started_at {
+        conn.execute_batch("ALTER TABLE matches ADD COLUMN started_at INTEGER;")?;
+    }
+    conn.execute_batch("CREATE INDEX IF NOT EXISTS matches_by_start ON matches(started_at);")?;
+    let has_old_notes: bool = conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'notes'", [], |row| row.get(0))?;
+    if has_old_notes {
+        conn.execute_batch(
+            "BEGIN; INSERT INTO player_notes (steam_id, text, created_at) SELECT steam_id, text, updated_at FROM notes; DROP TABLE notes; COMMIT;",
+        )?;
+    }
+    Ok(())
+}
+
 impl MatchHistoryStore {
-    /// Opens history.sqlite in `directory`, importing the older match-history.json once.
+    /// Opens history.sqlite in `directory`.
     pub fn open(directory: &Path) -> Self {
         let file = directory.join("history.sqlite");
         let _ = std::fs::create_dir_all(directory);
@@ -137,10 +181,27 @@ impl MatchHistoryStore {
         Self { file, conn, load_error, summaries: HashMap::new() }
     }
 
-    fn insert(&mut self, ended_at: i64, map: &str, mode: &str, result: &str, self_id: &str, players: &[HistoryPlayer]) -> rusqlite::Result<()> {
+    #[allow(clippy::too_many_arguments)]
+    fn insert(
+        &mut self,
+        started_at: Option<i64>,
+        ended_at: i64,
+        map: &str,
+        mode: &str,
+        result: &str,
+        self_id: &str,
+        players: &[HistoryPlayer],
+    ) -> rusqlite::Result<()> {
         let tx = self.conn.transaction()?;
-        tx.execute("INSERT INTO matches (ended_at, map, mode, result, self_id) VALUES (?1, ?2, ?3, ?4, ?5)", params![ended_at, map, mode, result, self_id])?;
+        tx.execute(
+            "INSERT INTO matches (ended_at, map, mode, result, self_id, started_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![ended_at, map, mode, result, self_id, started_at],
+        )?;
         let match_id = tx.last_insert_rowid();
+        if let Some(started_at) = started_at {
+            // Notes written while this match was running now belong to it.
+            tx.execute("UPDATE player_notes SET match_id = ?1 WHERE match_id IS NULL AND match_started_at = ?2", params![match_id, started_at])?;
+        }
         for player in players {
             tx.execute(
                 "INSERT OR IGNORE INTO encounters (match_id, steam_id, name, side) VALUES (?1, ?2, ?3, ?4)",
@@ -158,13 +219,19 @@ impl MatchHistoryStore {
     }
 
     /// Records a finished match; false when there is nothing worth keeping.
+    #[cfg(test)]
     pub fn record(&mut self, map: &str, mode: &str, result: &str, self_id: &str, players: Vec<HistoryPlayer>) -> bool {
+        self.record_match(None, map, mode, result, self_id, players)
+    }
+
+    /// Records a finished match that started at `started_at`, linking the notes written during it.
+    pub fn record_match(&mut self, started_at: Option<i64>, map: &str, mode: &str, result: &str, self_id: &str, players: Vec<HistoryPlayer>) -> bool {
         let others: Vec<HistoryPlayer> = players.into_iter().filter(|p| is_steam_id(&p.steam_id) && p.steam_id != self_id).collect();
         if self_id.is_empty() || others.is_empty() {
             return false;
         }
         // History is a convenience; the match itself is unaffected when it cannot be saved.
-        let saved = self.insert(now_ms(), map, mode, result, self_id, &others).is_ok();
+        let saved = self.insert(started_at, now_ms(), map, mode, result, self_id, &others).is_ok();
         self.summaries.clear();
         saved
     }
@@ -208,7 +275,7 @@ impl MatchHistoryStore {
                 "SELECT m.id, m.ended_at, m.map, m.mode, m.result, \
                         COALESCE(SUM(e.side = 'team'), 0), COALESCE(SUM(e.side = 'enemy'), 0), COUNT(e.steam_id) \
                  FROM matches m LEFT JOIN encounters e ON e.match_id = m.id \
-                 WHERE ?1 = '' OR m.self_id = ?1 GROUP BY m.id ORDER BY m.ended_at DESC LIMIT ?2 OFFSET ?3",
+                 WHERE ?1 = '' OR m.self_id = ?1 GROUP BY m.id ORDER BY m.ended_at DESC, m.id DESC LIMIT ?2 OFFSET ?3",
             )
             .and_then(|mut statement| {
                 statement
@@ -252,7 +319,7 @@ impl MatchHistoryStore {
             .prepare(
                 "SELECT e.steam_id, e.name, e.side, \
                         (SELECT COUNT(*) FROM encounters x JOIN matches o ON o.id = x.match_id WHERE x.steam_id = e.steam_id AND o.self_id = ?2), \
-                        EXISTS(SELECT 1 FROM notes n WHERE n.steam_id = e.steam_id) \
+                        EXISTS(SELECT 1 FROM player_notes n WHERE n.steam_id = e.steam_id) \
                  FROM encounters e WHERE e.match_id = ?1 ORDER BY e.side = 'team' DESC, e.side = 'enemy' DESC, e.name COLLATE NOCASE",
             )
             .and_then(|mut statement| {
@@ -266,11 +333,17 @@ impl MatchHistoryStore {
                             "met": row.get::<_, i64>(3)?,
                             "hasNote": row.get::<_, bool>(4)?,
                             "values": values.get(&steam_id).cloned().unwrap_or_default(),
+                            "notes": [],
                         }))
                     })?
                     .collect()
             })
             .unwrap_or_default();
+        let mut players = players;
+        for player in players.iter_mut() {
+            let steam_id = player["steamId"].as_str().unwrap_or_default().to_string();
+            player["notes"] = Value::Array(self.notes_for(&steam_id).into_iter().filter(|n| n["matchId"] == id).collect());
+        }
         Some(json!({ "id": id, "endedAt": ended_at, "map": map, "mode": mode, "result": result, "selfId": self_id, "players": players }))
     }
 
@@ -279,7 +352,7 @@ impl MatchHistoryStore {
         let summary = self.summary_for(self_id, steam_id);
         let encounters: Vec<Value> = self
             .conn
-            .prepare("SELECT m.ended_at, m.map, m.mode, m.result, e.side, e.name FROM encounters e JOIN matches m ON m.id = e.match_id WHERE m.self_id = ?1 AND e.steam_id = ?2 ORDER BY m.ended_at DESC LIMIT 200")
+            .prepare("SELECT m.ended_at, m.map, m.mode, m.result, e.side, e.name FROM encounters e JOIN matches m ON m.id = e.match_id WHERE m.self_id = ?1 AND e.steam_id = ?2 ORDER BY m.ended_at DESC, m.id DESC LIMIT 200")
             .and_then(|mut statement| {
                 statement
                     .query_map(params![self_id, steam_id], |row| {
@@ -321,43 +394,75 @@ impl MatchHistoryStore {
                 })
             })
             .collect();
-        let note = self.note(steam_id);
-        json!({ "summary": summary, "encounters": encounters, "progression": progression, "note": note })
+        json!({ "summary": summary, "encounters": encounters, "progression": progression, "notes": self.notes_for(steam_id) })
     }
 
-    pub fn note(&self, steam_id: &str) -> Value {
-        self.conn
-            .query_row("SELECT text, updated_at FROM notes WHERE steam_id = ?1", params![steam_id], |row| {
-                Ok(json!({ "text": row.get::<_, String>(0)?, "updatedAt": row.get::<_, i64>(1)? }))
-            })
-            .optional()
-            .ok()
-            .flatten()
-            .unwrap_or(Value::Null)
-    }
-
-    /// Saves (or with empty text, deletes) your note on a player.
-    pub fn set_note(&mut self, steam_id: &str, text: &str) -> Result<(), String> {
+    /// Adds a note on a player, stamped with the time and where it was written.
+    pub fn add_note(&mut self, steam_id: &str, text: &str, context: &NoteContext) -> Result<Value, String> {
         let text = text.trim();
-        if text.chars().count() > 2000 {
+        if !is_steam_id(steam_id) {
+            return Err("Unknown player.".into());
+        }
+        if text.is_empty() {
+            return Err("The note is empty.".into());
+        }
+        if text.chars().count() > MAX_NOTE_CHARS {
             return Err("Notes are limited to 2,000 characters.".into());
         }
-        let result = if text.is_empty() {
-            self.conn.execute("DELETE FROM notes WHERE steam_id = ?1", params![steam_id])
-        } else {
-            self.conn.execute(
-                "INSERT INTO notes (steam_id, text, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(steam_id) DO UPDATE SET text = excluded.text, updated_at = excluded.updated_at",
-                params![steam_id, text, now_ms()],
+        // A note written after its match was recorded joins that match straight away.
+        let match_id = context.match_id.or_else(|| {
+            let started_at = context.match_started_at?;
+            self.conn.query_row("SELECT id FROM matches WHERE started_at = ?1 ORDER BY id DESC LIMIT 1", params![started_at], |row| row.get(0)).ok()
+        });
+        self.conn
+            .execute(
+                "INSERT INTO player_notes (steam_id, text, created_at, map, mode, side, match_started_at, match_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![steam_id, text, now_ms(), context.map, context.mode, context.side, context.match_started_at, match_id],
             )
-        };
-        result.map(|_| ()).map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+        let id = self.conn.last_insert_rowid();
+        Ok(self.notes_for(steam_id).into_iter().find(|n| n["id"] == id).unwrap_or(Value::Null))
     }
 
-    /// SteamIDs with a note, for the note marker in tables.
-    pub fn noted(&self) -> Vec<String> {
+    /// Where a note about `steam_id` written from a recorded match belongs.
+    pub fn note_context_for_match(&self, match_id: i64, steam_id: &str) -> Option<NoteContext> {
         self.conn
-            .prepare("SELECT steam_id FROM notes")
-            .and_then(|mut statement| statement.query_map([], |row| row.get::<_, String>(0))?.collect())
+            .query_row(
+                "SELECT m.map, m.mode, COALESCE(e.side, '') FROM matches m LEFT JOIN encounters e ON e.match_id = m.id AND e.steam_id = ?2 WHERE m.id = ?1",
+                params![match_id, steam_id],
+                |row| Ok(NoteContext { map: row.get(0)?, mode: row.get(1)?, side: row.get(2)?, match_started_at: None, match_id: Some(match_id) }),
+            )
+            .ok()
+    }
+
+    pub fn delete_note(&mut self, id: i64) -> Result<(), String> {
+        self.conn.execute("DELETE FROM player_notes WHERE id = ?1", params![id]).map(|_| ()).map_err(|e| e.to_string())
+    }
+
+    /// A player's notes, newest first, each with the match it was written in (and that match's result).
+    pub fn notes_for(&self, steam_id: &str) -> Vec<Value> {
+        self.conn
+            .prepare(
+                "SELECT n.id, n.text, n.created_at, n.map, n.mode, n.side, n.match_id, m.result \
+                 FROM player_notes n LEFT JOIN matches m ON m.id = n.match_id \
+                 WHERE n.steam_id = ?1 ORDER BY n.created_at DESC, n.id DESC",
+            )
+            .and_then(|mut statement| {
+                statement
+                    .query_map(params![steam_id], |row| {
+                        Ok(json!({
+                            "id": row.get::<_, i64>(0)?,
+                            "text": row.get::<_, String>(1)?,
+                            "createdAt": row.get::<_, i64>(2)?,
+                            "map": row.get::<_, String>(3)?,
+                            "mode": row.get::<_, String>(4)?,
+                            "side": row.get::<_, String>(5)?,
+                            "matchId": row.get::<_, Option<i64>>(6)?,
+                            "result": row.get::<_, Option<String>>(7)?,
+                        }))
+                    })?
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
@@ -390,22 +495,29 @@ impl MatchHistoryStore {
         };
         json!({
             "format": "cs2-player-intel-history",
-            "version": 1,
+            "version": 2,
             "exportedAt": now_ms(),
-            "matches": table("SELECT id, ended_at, map, mode, result, self_id FROM matches ORDER BY ended_at", &["id", "endedAt", "map", "mode", "result", "selfId"]),
+            "matches": table(
+                "SELECT id, ended_at, map, mode, result, self_id, started_at FROM matches ORDER BY ended_at",
+                &["id", "endedAt", "map", "mode", "result", "selfId", "startedAt"]
+            ),
             "encounters": table("SELECT match_id, steam_id, name, side FROM encounters", &["matchId", "steamId", "name", "side"]),
             "snapshots": table("SELECT match_id, steam_id, provider, metric, value, measured_at FROM snapshots", &["matchId", "steamId", "provider", "metric", "value", "measuredAt"]),
-            "notes": table("SELECT steam_id, text, updated_at FROM notes", &["steamId", "text", "updatedAt"]),
+            "notes": table(
+                "SELECT steam_id, text, created_at, map, mode, side, match_started_at, match_id FROM player_notes ORDER BY created_at",
+                &["steamId", "text", "createdAt", "map", "mode", "side", "matchStartedAt", "matchId"]
+            ),
         })
     }
 
     /// Merges a file written by [`Self::export`]. A match already recorded (same account, end time and map)
-    /// is skipped, so importing the same file twice changes nothing; for notes, the newer one wins.
+    /// is skipped, and so is a note already present (same player, time and text), so importing the same file
+    /// twice changes nothing. Exports with one note per player (format 1) are read too.
     pub fn import(&mut self, data: &Value) -> Result<Value, String> {
         if data["format"] != "cs2-player-intel-history" {
             return Err("This is not a CS2 Player Intel history export.".into());
         }
-        if data["version"].as_i64() != Some(1) {
+        if !matches!(data["version"].as_i64(), Some(1 | 2)) {
             return Err("This export comes from a newer version of the app; update first.".into());
         }
         let text = |v: &Value| v.as_str().unwrap_or_default().to_string();
@@ -419,18 +531,19 @@ impl MatchHistoryStore {
             if !is_steam_id(&self_id) {
                 continue;
             }
-            let exists: bool = tx
-                .query_row("SELECT EXISTS(SELECT 1 FROM matches WHERE self_id = ?1 AND ended_at = ?2 AND map = ?3)", params![self_id, ended_at, map], |row| {
-                    row.get(0)
-                })
+            let existing: Option<i64> = tx
+                .query_row("SELECT id FROM matches WHERE self_id = ?1 AND ended_at = ?2 AND map = ?3", params![self_id, ended_at, map], |row| row.get(0))
+                .optional()
                 .map_err(|e| e.to_string())?;
-            if exists {
+            if let Some(existing) = existing {
+                // Notes in the file can still point at it.
+                ids.insert(old_id, existing);
                 skipped += 1;
                 continue;
             }
             tx.execute(
-                "INSERT INTO matches (ended_at, map, mode, result, self_id) VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![ended_at, map, text(&m["mode"]), text(&m["result"]), self_id],
+                "INSERT INTO matches (ended_at, map, mode, result, self_id, started_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![ended_at, map, text(&m["mode"]), text(&m["result"]), self_id, m["startedAt"].as_i64()],
             )
             .map_err(|e| e.to_string())?;
             ids.insert(old_id, tx.last_insert_rowid());
@@ -461,14 +574,26 @@ impl MatchHistoryStore {
         }
         for n in list("notes") {
             let (steam_id, note) = (text(&n["steamId"]), text(&n["text"]));
-            let Some(updated_at) = n["updatedAt"].as_i64() else { continue };
-            if !is_steam_id(&steam_id) || note.trim().is_empty() || note.chars().count() > 2000 {
+            // Format 1 had one note per player with the time it was last changed.
+            let Some(created_at) = n["createdAt"].as_i64().or_else(|| n["updatedAt"].as_i64()) else { continue };
+            if !is_steam_id(&steam_id) || note.trim().is_empty() || note.chars().count() > MAX_NOTE_CHARS {
                 continue;
             }
+            let present: bool = tx
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM player_notes WHERE steam_id = ?1 AND created_at = ?2 AND text = ?3)",
+                    params![steam_id, created_at, note],
+                    |row| row.get(0),
+                )
+                .map_err(|e| e.to_string())?;
+            if present {
+                continue;
+            }
+            let match_id = n["matchId"].as_i64().and_then(|id| ids.get(&id).copied());
             notes += tx
                 .execute(
-                    "INSERT INTO notes (steam_id, text, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(steam_id) DO UPDATE SET text = excluded.text, updated_at = excluded.updated_at WHERE excluded.updated_at > notes.updated_at",
-                    params![steam_id, note, updated_at],
+                    "INSERT INTO player_notes (steam_id, text, created_at, map, mode, side, match_started_at, match_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    params![steam_id, note, created_at, text(&n["map"]), text(&n["mode"]), text(&n["side"]), n["matchStartedAt"].as_i64(), match_id],
                 )
                 .map_err(|e| e.to_string())?;
         }
@@ -479,7 +604,7 @@ impl MatchHistoryStore {
 
     /// Deletes recorded matches (and with `notes`, your notes too).
     pub fn clear(&mut self, notes: bool) -> Result<(), String> {
-        let sql = if notes { "DELETE FROM matches; DELETE FROM notes;" } else { "DELETE FROM matches;" };
+        let sql = if notes { "DELETE FROM matches; DELETE FROM player_notes;" } else { "DELETE FROM matches;" };
         self.conn.execute_batch(sql).map_err(|e| e.to_string())?;
         let _ = self.conn.execute_batch("VACUUM;");
         self.summaries.clear();
@@ -506,7 +631,7 @@ impl MatchHistoryStore {
         let count = |table: &str| -> i64 { self.conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row.get(0)).unwrap_or(0) };
         let players: i64 = self.conn.query_row("SELECT COUNT(DISTINCT steam_id) FROM encounters", [], |row| row.get(0)).unwrap_or(0);
         let bytes = std::fs::metadata(&self.file).map(|m| m.len()).unwrap_or(0);
-        json!({ "matches": count("matches"), "players": players, "snapshots": count("snapshots"), "notes": count("notes"), "file": self.file.to_string_lossy(), "bytes": bytes, "error": self.load_error })
+        json!({ "matches": count("matches"), "players": players, "snapshots": count("snapshots"), "notes": count("player_notes"), "file": self.file.to_string_lossy(), "bytes": bytes, "error": self.load_error })
     }
 }
 
@@ -546,7 +671,7 @@ mod tests {
         let mut store = MatchHistoryStore::open(dir.path());
         store.record("de_dust2", "premier", "win", ME, vec![player(ME, "team"), with_hours(player(A, "enemy"), 300.0, 1_000)]);
         store.record("de_mirage", "competitive", "loss", ME, vec![player(ME, "team"), player(A, "team")]);
-        store.set_note(A, "Plays AWP").unwrap();
+        store.add_note(A, "Plays AWP", &NoteContext::default()).unwrap();
 
         let page = store.matches(ME, 1, 0);
         assert_eq!(page["total"], 2);
@@ -569,6 +694,13 @@ mod tests {
         assert_eq!((a["side"].as_str(), a["met"].as_i64(), a["hasNote"].as_bool()), (Some("enemy"), Some(2), Some(true)));
         assert_eq!(a["values"]["steam.hoursCs2"], 300.0, "values as they were at that match");
         assert!(store.match_details(9999).is_none());
+
+        // Matches ending in the same millisecond keep their recorded order (newest first).
+        store.insert(None, 5_000, "de_nuke", "premier", "win", ME, &[]).unwrap();
+        store.insert(None, 5_000, "de_train", "premier", "loss", ME, &[]).unwrap();
+        let page = store.matches(ME, 10, 0);
+        let tied: Vec<&str> = page["matches"].as_array().unwrap().iter().filter(|m| m["endedAt"] == 5_000).map(|m| m["map"].as_str().unwrap()).collect();
+        assert_eq!(tied, ["de_train", "de_nuke"]);
     }
 
     #[test]
@@ -616,19 +748,27 @@ mod tests {
         let source = tempfile::tempdir().unwrap();
         let mut a = MatchHistoryStore::open(source.path());
         a.record("de_dust2", "premier", "win", ME, vec![with_hours(player(A, "enemy"), 300.0, 1_000)]);
-        a.set_note(A, "old note").unwrap();
+        a.add_note(A, "old note", &NoteContext::default()).unwrap();
         let export = a.export();
         let target = tempfile::tempdir().unwrap();
         let mut b = MatchHistoryStore::open(target.path());
-        b.set_note(A, "newer note").unwrap();
+        b.add_note(A, "newer note", &NoteContext::default()).unwrap();
         let first = b.import(&export).unwrap();
         assert_eq!((first["matches"].as_i64(), first["skipped"].as_i64()), (Some(1), Some(0)));
-        assert_eq!(first["notes"], 0, "the newer note is kept");
-        assert_eq!(b.note(A)["text"], "newer note");
+        assert_eq!(first["notes"], 1, "notes from the file are added beside yours");
+        assert_eq!(b.notes_for(A).len(), 2);
         assert_eq!(b.summary_for(ME, A).against.won, 1);
         assert_eq!(b.player_history(ME, A)["progression"][0]["current"]["value"], 300.0);
         let again = b.import(&export).unwrap();
-        assert_eq!((again["matches"].as_i64(), again["skipped"].as_i64()), (Some(0), Some(1)), "importing twice changes nothing");
+        assert_eq!(
+            (again["matches"].as_i64(), again["skipped"].as_i64(), again["notes"].as_i64()),
+            (Some(0), Some(1), Some(0)),
+            "importing twice changes nothing"
+        );
+        // A format 1 file: one note per player, stamped with when it was last changed.
+        let old = json!({ "format": "cs2-player-intel-history", "version": 1, "matches": [], "notes": [{ "steamId": A, "text": "From an old export", "updatedAt": 42 }] });
+        assert_eq!(b.import(&old).unwrap()["notes"], 1);
+        assert_eq!(b.notes_for(A).last().unwrap()["createdAt"], 42);
         assert!(b.import(&json!({ "format": "something else" })).is_err());
         assert!(b.import(&json!({ "format": "cs2-player-intel-history", "version": 9 })).unwrap_err().contains("newer version"));
     }
@@ -639,26 +779,82 @@ mod tests {
         let mut store = MatchHistoryStore::open(dir.path());
         store.record("de_dust2", "competitive", "win", ME, vec![player(A, "team")]);
         assert_eq!(store.summary_for(ME, A).together.won, 1);
-        store.set_note(A, "  Plays AWP on B  ").unwrap();
-        assert_eq!(store.note(A)["text"], "Plays AWP on B");
-        assert_eq!(store.noted(), [A]);
-        assert!(store.set_note(A, &"x".repeat(2001)).is_err());
+        let note = store.add_note(A, "  Plays AWP on B  ", &NoteContext::default()).unwrap();
+        assert_eq!(note["text"], "Plays AWP on B");
+        assert!(store.add_note(A, &"x".repeat(2001), &NoteContext::default()).is_err());
+        assert!(store.add_note(A, "   ", &NoteContext::default()).is_err());
+        assert!(store.add_note("bad", "text", &NoteContext::default()).is_err());
         let export = store.export();
         assert_eq!(export["matches"].as_array().unwrap().len(), 1);
         assert_eq!(export["notes"][0]["text"], "Plays AWP on B");
         store.clear(false).unwrap();
         assert_eq!(store.summary_for(ME, A).all.played, 0);
-        assert!(!store.note(A).is_null(), "notes survive clearing matches");
+        assert_eq!(store.notes_for(A).len(), 1, "notes survive clearing matches");
         store.clear(true).unwrap();
-        assert!(store.note(A).is_null());
+        assert!(store.notes_for(A).is_empty());
         assert_eq!(store.stats()["matches"], 0);
+    }
+
+    #[test]
+    fn notes_belong_to_the_match_they_were_written_in() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = MatchHistoryStore::open(dir.path());
+        let during = NoteContext { map: "de_mirage".into(), mode: "premier".into(), side: "enemy".into(), match_started_at: Some(1_000), match_id: None };
+        let first = store.add_note(A, "Peeks banana every round", &during).unwrap();
+        assert!(first["matchId"].is_null(), "the match isn't recorded yet");
+        assert!(store.record_match(Some(1_000), "de_mirage", "premier", "loss", ME, vec![player(A, "enemy")]));
+        let after = store.add_note(A, "Reported for griefing", &during).unwrap();
+        let notes = store.notes_for(A);
+        assert_eq!(notes.len(), 2);
+        assert_eq!(notes[0]["text"], "Reported for griefing", "newest first");
+        assert_eq!(notes[0]["matchId"], notes[1]["matchId"], "both belong to the match");
+        assert_eq!((notes[1]["map"].as_str(), notes[1]["side"].as_str(), notes[1]["result"].as_str()), (Some("de_mirage"), Some("enemy"), Some("loss")));
+
+        let match_id = notes[0]["matchId"].as_i64().unwrap();
+        let details = store.match_details(match_id).unwrap();
+        assert_eq!(details["players"][0]["notes"].as_array().unwrap().len(), 2);
+        // A note for another match, written from the History page, stays with that match.
+        assert!(store.record_match(Some(2_000), "de_nuke", "premier", "win", ME, vec![player(A, "team")]));
+        let later = store.match_details(match_id + 1).unwrap();
+        assert!(later["players"][0]["notes"].as_array().unwrap().is_empty());
+        let context = NoteContext { match_id: Some(match_id + 1), side: "team".into(), ..NoteContext::default() };
+        store.add_note(A, "Good teammate this time", &context).unwrap();
+        assert_eq!(store.match_details(match_id + 1).unwrap()["players"][0]["notes"][0]["text"], "Good teammate this time");
+
+        store.delete_note(after["id"].as_i64().unwrap()).unwrap();
+        assert_eq!(store.notes_for(A).len(), 2);
+        // Deleting a match keeps its notes (without the link).
+        store.clear(false).unwrap();
+        assert!(store.notes_for(A).iter().all(|n| n["matchId"].is_null() && n["result"].is_null()));
+        assert_eq!(first["map"], "de_mirage");
+    }
+
+    #[test]
+    fn databases_with_one_note_per_player_are_upgraded() {
+        let dir = tempfile::tempdir().unwrap();
+        {
+            let conn = Connection::open(dir.path().join("history.sqlite")).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE matches (id INTEGER PRIMARY KEY, ended_at INTEGER NOT NULL, map TEXT NOT NULL DEFAULT '', mode TEXT NOT NULL DEFAULT '', result TEXT NOT NULL DEFAULT 'unknown', self_id TEXT NOT NULL);
+                 CREATE TABLE notes (steam_id TEXT PRIMARY KEY, text TEXT NOT NULL, updated_at INTEGER NOT NULL);
+                 INSERT INTO matches (ended_at, map, self_id) VALUES (5, 'de_dust2', '76561198000000000');
+                 INSERT INTO notes VALUES ('76561198000000001', 'Kept', 7);",
+            )
+            .unwrap();
+        }
+        let mut store = MatchHistoryStore::open(dir.path());
+        assert!(store.load_error.is_empty());
+        assert_eq!(store.notes_for(A)[0]["text"], "Kept");
+        assert_eq!(store.notes_for(A)[0]["createdAt"], 7);
+        assert_eq!(store.matches(ME, 10, 0)["total"], 1);
+        assert!(store.record_match(Some(9), "de_nuke", "premier", "win", ME, vec![player(A, "team")]), "new matches keep their start time");
     }
 
     #[test]
     fn retention_removes_old_matches() {
         let dir = tempfile::tempdir().unwrap();
         let mut store = MatchHistoryStore::open(dir.path());
-        store.insert(now_ms() - 40 * 86_400_000, "de_nuke", "competitive", "win", ME, &[player(A, "")]).unwrap();
+        store.insert(None, now_ms() - 40 * 86_400_000, "de_nuke", "competitive", "win", ME, &[player(A, "")]).unwrap();
         store.record("de_nuke", "competitive", "win", ME, vec![player(A, "")]);
         store.purge_older_than(30.0);
         assert_eq!(store.summary_for(ME, A).all.played, 1);

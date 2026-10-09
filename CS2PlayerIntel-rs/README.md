@@ -88,7 +88,9 @@ For reliable mouse navigation, press your configured clickable-overlay shortcut 
 
 **History and notes**
 
-Finished matches are saved in a local SQLite database: who you played with or against, the result, and values from Steam, CSRep, CSStats and FACEIT at the time. Add notes to any player. Export, import, retention and delete are in Settings → Database. Leetify data is never stored.
+Finished matches are saved in a local SQLite database: who you played with or against, the result, and values from Steam, CSRep, CSStats and FACEIT at the time. Export, import, retention and delete are in Settings → Database. Leetify data is never stored.
+
+**Notes on players.** Write as many notes about a player as you like: in their details on the Match page, in the overlay's player card (press Shift+F8 so the overlay takes keyboard input), or on the History page for a past match. Each note keeps the date and time, the map and mode, whether the player was with or against you, and the match it was written in (with its result once the match is recorded). When you meet the player again, their notes show in the overlay card and the dashboard, newest first; a pencil marks noted players.
 
 **Teammate colours (optional, off by default)**
 

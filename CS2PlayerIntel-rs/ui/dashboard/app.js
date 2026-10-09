@@ -568,9 +568,11 @@ function handleAction(event) {
   else if (action === 'refresh') busy(button, () => api.refreshPlayer(id), { spin: true });
   else if (action === 'remove') busy(button, async () => { await api.removePlayer(id); if (detailsId === id) { detailsId = ''; renderDetails(); } });
   else if (action === 'side') busy(button, () => api.setPlayerSide(id, button.dataset.side));
-  else if (action === 'note-save' || action === 'note-delete') {
-    const text = action === 'note-save' ? /** @type {HTMLTextAreaElement} */ (byId('noteText')).value : '';
-    busy(button, async () => { await api.saveNote(id, text); records.delete(id); await loadRecord(id); toast(text.trim() ? 'Note saved.' : 'Note deleted.'); });
+  else if (action === 'note-add') {
+    const text = /** @type {HTMLTextAreaElement} */ (byId('noteText')).value;
+    busy(button, async () => { await api.addNote(id, text); records.delete(id); await loadRecord(id); toast('Note saved.'); });
+  } else if (action === 'note-delete') {
+    busy(button, async () => { await api.deleteNote(Number(button.dataset.note)); records.delete(detailsId); await loadRecord(detailsId); toast('Note deleted.'); });
   }
 }
 

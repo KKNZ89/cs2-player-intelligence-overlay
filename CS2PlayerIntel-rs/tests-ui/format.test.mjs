@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { colourClass, discovery, groups, issuesHtml, lobbyCount, matchTitle, playerChips, providerIssues, rosterCounts, winChance } from '../ui/lib/format.js';
+import { colourClass, discovery, groups, issuesHtml, noteMeta, notesHtml, lobbyCount, matchTitle, playerChips, providerIssues, rosterCounts, winChance } from '../ui/lib/format.js';
 import { providerStatusText } from '../ui/lib/status.js';
 
 const players = count => Array.from({ length: count }, (_, i) => ({ steamId: String(76561198000000000n + BigInt(i)), name: `P${i}`, isSelf: i === 0, side: i === 0 ? 'team' : '' }));
@@ -108,4 +108,15 @@ test('teammate colours become ring classes; anything else is ignored', () => {
   assert.equal(colourClass({ colour: 'purple' }), ' tc tc-purple');
   assert.equal(colourClass({}), '');
   assert.equal(colourClass({ colour: 'red" onload="x' }), '', 'only the five CS2 colours reach the markup');
+});
+
+test('notes show when and where they were written, and their text is escaped', () => {
+  const note = { id: 7, text: 'Rushes B <b>every</b> round', createdAt: Date.now(), map: 'de_mirage', mode: 'premier', side: 'enemy', result: 'loss' };
+  assert.match(noteMeta(note), / · Premier · Mirage · Opponent · Loss$/);
+  assert.doesNotMatch(noteMeta({ ...note, side: '', result: null, map: '', mode: '' }), /·/, 'nothing but the time when the match is unknown');
+  const html = notesHtml([note, { ...note, id: 8 }], { deletable: true, limit: 1 });
+  assert.match(html, /Rushes B &lt;b&gt;every&lt;\/b&gt; round/);
+  assert.match(html, /data-action="note-delete" data-note="7"/);
+  assert.match(html, /1 older note in the app/);
+  assert.equal(notesHtml([]), '');
 });

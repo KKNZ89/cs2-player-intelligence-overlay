@@ -387,7 +387,7 @@ th.sorted.asc::after { content: ' ↑'; }
 .settings-section > p.small + .field, .settings-section > p.small + label { margin-top: 4px; }
 
 /* History */
-.history-layout { display: grid; grid-template-columns: minmax(360px, 1fr) minmax(0, 1.5fr); gap: 16px; align-items: start; }
+.history-layout { display: grid; grid-template-columns: minmax(400px, 1fr) minmax(0, 1.6fr); gap: 16px; align-items: start; }
 @media (max-width: 1100px) { .history-layout { grid-template-columns: 1fr; } }
 .history-table tr.clickable { cursor: pointer; }
 .history-table tr.open { background: rgba(255, 255, 255, .05); }
@@ -395,4 +395,9 @@ th.sorted.asc::after { content: ' ↑'; }
 .history-players .history-name { font-weight: 600; }
 .history-note { display: inline-flex; margin-left: 6px; color: var(--brand); vertical-align: middle; }
 .history-links { text-align: right; }
-.history-links .link + .link { margin-left: 10px; }
+.history-links .link + .link { margin-left: 8px; }
+.history-players th, .history-players td { padding-left: 9px; padding-right: 9px; }
+.history-links .link { font-size: 12.5px; }
+
+.history-notes td, .history-note-add td { padding-top: 0; white-space: normal; }
+.history-note-add .input-row { max-width: 640px; }

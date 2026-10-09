@@ -2,7 +2,7 @@
 import { byId, esc, setHidden, setHtml, setText } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { api } from '../lib/bridge.js';
-import { displayName, matchTitle } from '../lib/format.js';
+import { displayName, matchTitle, notesHtml } from '../lib/format.js';
 
 const PAGE = 50;
 const OUTCOME = { win: ['W', 'Win'], loss: ['L', 'Loss'], tie: ['T', 'Tie'] };
@@ -35,9 +35,9 @@ function renderList() {
   setText(byId('historyCount'), total ? `${total} match${total === 1 ? '' : 'es'} recorded` : '');
   setHidden(byId('historyEmpty'), total > 0);
   setHidden(byId('historyMoreBtn'), matches.length >= total);
-  setHtml(byId('historyList'), matches.map(m => `<tr class="clickable${m.id === openId ? ' open' : ''}" data-match="${m.id}" tabindex="0">
-      <td>${esc(when(m.endedAt))}</td><td>${esc(title(m))}</td><td>${outcome(m.result)}</td>
-      <td class="num" title="Other players recorded: teammates and opponents">${m.team} · ${m.enemy}${m.players > m.team + m.enemy ? ` · ${m.players - m.team - m.enemy}` : ''}</td></tr>`).join(''));
+  const count = m => [`${m.team} teammate${m.team === 1 ? '' : 's'}`, `${m.enemy} opponent${m.enemy === 1 ? '' : 's'}`, m.players > m.team + m.enemy ? `${m.players - m.team - m.enemy} not assigned` : ''].filter(Boolean).join(' · ');
+  setHtml(byId('historyList'), matches.map(m => `<tr class="clickable${m.id === openId ? ' open' : ''}" data-match="${m.id}" tabindex="0" title="${esc(count(m))} recorded">
+      <td>${esc(when(m.endedAt))}</td><td>${esc(title(m))}</td><td>${outcome(m.result)}</td></tr>`).join(''));
 }
 
 function playerRows(players) {
@@ -53,8 +53,10 @@ function playerRows(players) {
       <td class="num">${value(p.values, 'faceit.elo')}</td>
       <td class="num">${value(p.values, 'csstats.kd', fixed(2))}</td>
       <td class="num">${value(p.values, 'csstats.hs', percent)}</td>
-      <td class="history-links"><button class="link" type="button" data-profile="steam" data-id="${esc(p.steamId)}">Steam</button><button class="link" type="button" data-profile="leetify" data-id="${esc(p.steamId)}">Leetify</button></td>
-    </tr>`;
+      <td class="history-links"><button class="link" type="button" data-note-toggle="${esc(p.steamId)}">Note</button><button class="link" type="button" data-profile="steam" data-id="${esc(p.steamId)}">Steam</button><button class="link" type="button" data-profile="leetify" data-id="${esc(p.steamId)}">Leetify</button></td>
+    </tr>
+    ${p.notes?.length ? `<tr class="history-notes"><td colspan="9">${notesHtml(p.notes)}</td></tr>` : ''}
+    <tr class="history-note-add" data-note-row="${esc(p.steamId)}" hidden><td colspan="9"><div class="input-row"><input class="input" maxlength="2000" placeholder="Note about ${esc(name)} in this match"><button class="btn" type="button" data-note-save="${esc(p.steamId)}">Save note</button></div></td></tr>`;
   }).join('');
 }
 
@@ -89,6 +91,17 @@ async function open(id) {
   }
 }
 
+async function saveNote(button) {
+  const input = /** @type {HTMLInputElement} */ (button.closest('tr').querySelector('input'));
+  if (!input.value.trim() || openId === null) return;
+  try {
+    await api.addNote(button.dataset.noteSave, input.value, openId);
+    renderMatch(await api.historyMatch(openId));
+  } catch (error) {
+    onError(error.message || String(error));
+  }
+}
+
 /** Loads the first page again (each time the page is shown, so new matches appear). */
 export async function loadHistory() {
   matches = [];
@@ -118,8 +131,24 @@ export function bindHistory(reportError) {
     }
   });
   byId('historyMoreBtn').addEventListener('click', () => loadMore().catch(error => onError(error.message || String(error))));
-  byId('historyMatchPlayers').addEventListener('click', event => {
-    const button = /** @type {HTMLElement | null} */ (/** @type {Element} */ (event.target).closest('button[data-profile]'));
-    if (button) api.openProfile(button.dataset.profile, button.dataset.id).catch(error => onError(error.message || String(error)));
+  const players = byId('historyMatchPlayers');
+  players.addEventListener('click', event => {
+    const target = /** @type {Element} */ (event.target);
+    const profile = /** @type {HTMLElement | null} */ (target.closest('button[data-profile]'));
+    if (profile) api.openProfile(profile.dataset.profile, profile.dataset.id).catch(error => onError(error.message || String(error)));
+    const toggle = /** @type {HTMLElement | null} */ (target.closest('button[data-note-toggle]'));
+    if (toggle) {
+      const row = /** @type {HTMLElement | null} */ (players.querySelector(`tr[data-note-row="${CSS.escape(toggle.dataset.noteToggle)}"]`));
+      if (row) {
+        row.hidden = !row.hidden;
+        if (!row.hidden) /** @type {HTMLInputElement} */ (row.querySelector('input')).focus();
+      }
+    }
+    const save = /** @type {HTMLElement | null} */ (target.closest('button[data-note-save]'));
+    if (save) void saveNote(save);
+  });
+  players.addEventListener('keydown', event => {
+    const input = /** @type {Element} */ (event.target).closest('tr[data-note-row] input');
+    if (input && event.key === 'Enter') void saveNote(/** @type {HTMLElement} */ (input.closest('tr').querySelector('button[data-note-save]')));
   });
 }

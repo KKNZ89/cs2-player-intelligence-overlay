@@ -238,12 +238,19 @@ pub fn player_history(webview: Webview, engine: State<'_, Arc<Engine>>, steam_id
 }
 
 #[tauri::command(async)]
-pub fn note_save(webview: Webview, engine: State<'_, Arc<Engine>>, steam_id: String, text: String) -> Result<bool> {
+pub fn note_add(webview: Webview, engine: State<'_, Arc<Engine>>, steam_id: String, text: String, match_id: Option<i64>) -> Result<Value> {
     trusted(&webview)?;
-    if numeric_steam_id(&steam_id).is_empty() {
+    let steam_id = numeric_steam_id(&steam_id);
+    if steam_id.is_empty() {
         return Err("Invalid SteamID64.".into());
     }
-    engine.save_note(&steam_id, &text)?;
+    engine.add_note(&steam_id, &text, match_id)
+}
+
+#[tauri::command(async)]
+pub fn note_delete(webview: Webview, engine: State<'_, Arc<Engine>>, id: i64) -> Result<bool> {
+    trusted(&webview)?;
+    engine.delete_note(id)?;
     Ok(true)
 }
 

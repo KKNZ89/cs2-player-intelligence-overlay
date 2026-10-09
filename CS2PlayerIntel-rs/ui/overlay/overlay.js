@@ -2,7 +2,7 @@ import { byId, esc, setClass, setHidden, setHtml, setText } from '../lib/dom.js'
 import { renderLiveStats } from '../lib/live-stats.js';
 import { icon } from '../lib/icons.js';
 import { api } from '../lib/bridge.js';
-import { ago, avatar, colourClass, columns as c, groups, isNum, issuesHtml, mapRecord, matchTitle, na, playerChips, playerName, profileIndicator, rosterCounts, roundText, scoreHtml, setPriority, setPrivacy, statusIcons, teamAverages, winChance } from '../lib/format.js';
+import { ago, avatar, colourClass, columns as c, groups, isNum, notesHtml, issuesHtml, mapRecord, matchTitle, na, playerChips, playerName, profileIndicator, rosterCounts, roundText, scoreHtml, setPriority, setPrivacy, statusIcons, teamAverages, winChance } from '../lib/format.js';
 
 const card = document.querySelector('.overlay-card');
 const list = byId('overlayPlayers');
@@ -100,6 +100,8 @@ function playerPanel(p, group) {
       ${metric('Time to Damage', c.timeToDamage(p))}${metric('Head Accuracy', c.headAccuracy(p))}${metric('Aim', c.aim(p))}${metric('Positioning', c.positioning(p))}${metric('Utility', c.utility(p))}${metric('FACEIT', c.faceit(p))}
       ${metric('CSRep Trust', c.csrep(p))}${metric('CSRep verdict', p.csrep?.trustVerdict ? esc(p.csrep.trustVerdict) : '<span class="na">N/A</span>')}${metric('VAC / game bans', c.vac(p))}${metric('Hours', c.hours(p))}${metric('Account age', c.accountAge(p))}
     </div>
+    <div class="ov-notes">${notesHtml(p.notes, { limit: 3 })}
+      <div class="ov-note-add"><input class="ov-note-input" data-id="${id}" maxlength="2000" placeholder="${lastState?.overlayMouseNavigation ? 'Add a note about this player' : 'Add a note: press Shift+F8 to type'}"><button class="ov-btn" data-action="note" data-id="${id}">Save note</button></div></div>
     <div class="ov-panel-foot"><span class="ov-form">Last 10 ${c.last10(p)}</span>
       <span class="ov-links">${['leetify', 'csrep', 'csstats', 'steam'].map(provider => `<button class="ov-link" data-action="profile" data-provider="${provider}" data-id="${id}">${{ leetify: 'Leetify', csrep: 'CSRep', csstats: 'CSStats', steam: 'Steam' }[provider]}${icon('external', { size: 11 })}</button>`).join('')}</span></div>
   </div>`;
@@ -173,7 +175,18 @@ function render(state) {
   setText(byId('ovHint'), hintNote || interactionHint());
   renderLiveStats(byId('overlayLiveStats'), g);
   updateCount();
+  // A note being typed survives redraws (new data arrives while you type).
+  const draft = /** @type {HTMLInputElement | null} */ (list.querySelector('.ov-note-input'));
+  const typing = draft ? { id: draft.dataset.id, value: draft.value, focused: document.activeElement === draft, caret: draft.selectionStart } : null;
   setHtml(list, renderPlayers(state, view, layout));
+  const input = typing && /** @type {HTMLInputElement | null} */ (list.querySelector(`.ov-note-input[data-id="${typing.id}"]`));
+  if (input && input.value !== typing.value) {
+    input.value = typing.value;
+    if (typing.focused) {
+      input.focus();
+      input.setSelectionRange(typing.caret, typing.caret);
+    }
+  }
 }
 
 function note(text) {
@@ -225,12 +238,25 @@ list.addEventListener('click', async event => {
   try {
     if (action === 'refresh') { target.classList.add('spin'); await api.refreshPlayer(id); }
     else if (action === 'side') await api.setPlayerSide(id, target.dataset.side);
+    else if (action === 'note') {
+      const input = /** @type {HTMLInputElement | null} */ (target.closest('.ov-note-add')?.querySelector('.ov-note-input'));
+      if (input?.value.trim()) {
+        await api.addNote(id, input.value);
+        input.value = '';
+        note('Note saved to this match.');
+      } else note('Type the note first (press Shift+F8 so the overlay can take keyboard input).');
+    }
     else if (action === 'profile') {
       note(`Opening ${target.textContent.trim()}… it shows over the game; click back into CS2 to hide it.`);
       await api.openProfile(target.dataset.provider, id);
     }
   } catch (error) { console.error(error.message); note(error.message); }
   finally { if (target instanceof HTMLButtonElement) target.disabled = false; target.classList.remove('spin'); }
+});
+
+list.addEventListener('keydown', event => {
+  const input = /** @type {Element} */ (event.target).closest('.ov-note-input');
+  if (input && event.key === 'Enter') /** @type {HTMLElement} */ (input.parentElement.querySelector('[data-action="note"]')).click();
 });
 
 api.onState(render);

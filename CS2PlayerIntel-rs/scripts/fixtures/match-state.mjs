@@ -56,6 +56,7 @@ function player(i) {
         : { indicator: 'normal', confidence: i % 2 ? 'high' : 'medium', reasons: [], checked: ['Premier vs FACEIT', 'Premier vs CS2 hours', 'Premier vs account age', 'Leetify aim vs Premier'], tendencies: i === 5 ? ['Usually wins opening duels (56% CT/T average)', 'Stronger on CT than T (Leetify side ratings)'] : [] },
     strongest: i === 5,
     hasNote: i === 6,
+    notes: i === 6 ? [{ id: 3, text: 'Rushes B with the AWP every pistol round.', createdAt: now - 3 * 864e5, map: 'de_mirage', mode: 'premier', side: 'enemy', matchId: 42, result: 'loss' }] : [],
     localHistory: isSelf ? undefined : { all: { played: i % 4, won: i % 4 ? 1 : 0, lost: i % 4 > 1 ? 1 : 0, tied: 0, unknown: 0 }, together: { played: 0 }, against: { played: 0 } }
   };
 }

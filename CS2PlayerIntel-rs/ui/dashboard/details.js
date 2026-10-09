@@ -2,7 +2,7 @@
 // measured values, inferred indicators and your own notes stay visibly separate.
 import { esc } from '../lib/dom.js';
 import { providerStatusText } from '../lib/status.js';
-import { columns as c, avatar, displayName, history, isNum, mapRecord, na, playerName, premierPeak, profileIndicator, shownId, statusIcons } from '../lib/format.js';
+import { columns as c, avatar, displayName, history, isNum, mapRecord, na, notesHtml, playerName, premierPeak, profileIndicator, shownId, statusIcons } from '../lib/format.js';
 
 const metric = (label, value, note = '') => `<div class="metric"><span>${label}</span><b>${value}</b>${note ? `<small>${note}</small>` : ''}</div>`;
 const section = (title, content, aside = '') => `<section class="detail-section"><h3>${title}${aside ? `<span class="h3-aside">${aside}</span>` : ''}</h3>${content}</section>`;
@@ -165,10 +165,13 @@ function historyTab(p, record) {
 
 function notesTab(p, record) {
   if (!record) return '<p class="muted">Loading…</p>';
-  const note = record.note;
-  return section('Your note', `<textarea id="noteText" class="input note-input" rows="8" maxlength="2000" spellcheck="true" placeholder="Anything you want to remember about ${esc(displayName(p))}">${esc(note?.text || '')}</textarea>
-    <div class="button-row"><button class="btn primary" data-action="note-save" data-id="${esc(p.steamId)}">Save note</button>${note ? `<button class="btn ghost" data-action="note-delete" data-id="${esc(p.steamId)}">Delete note</button><span class="muted small">Saved ${new Date(note.updatedAt).toLocaleString()}</span>` : ''}</div>
-    <p class="muted small">Personal notes stay on this PC, are marked ✎ beside the player, and are never mixed with measured data.</p>`);
+  const notes = record.notes || [];
+  return section('Add a note', `<textarea id="noteText" class="input note-input" rows="4" maxlength="2000" spellcheck="true" placeholder="What do you want to remember about ${esc(displayName(p))}?"></textarea>
+    <div class="button-row"><button class="btn primary" data-action="note-add" data-id="${esc(p.steamId)}">Add note</button><span class="muted small">Saved with the date and time, this match, and whether they were with or against you.</span></div>`)
+    + section(`Your notes${notes.length ? ` (${notes.length})` : ''}`, notes.length
+      ? notesHtml(notes, { deletable: true })
+      : '<p class="muted">No notes on this player yet.</p>')
+    + '<p class="muted small">Notes stay on this PC, are marked with a pencil beside the player, and are never mixed with measured data. The History page shows them with the match they were written in.</p>';
 }
 
 export const TABS = [['overview', 'Overview'], ['performance', 'Performance'], ['matches', 'Matches'], ['history', 'History'], ['notes', 'Notes']];

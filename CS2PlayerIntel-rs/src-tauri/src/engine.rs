@@ -547,8 +547,22 @@ impl Engine {
         url.starts_with("https://www.faceit.com/").then_some(url)
     }
 
-    pub fn save_note(&self, steam_id: &str, text: &str) -> Result<(), String> {
-        let result = self.state.lock().unwrap().history.set_note(steam_id, text);
+    /// Adds a note on a player: about this match, or with `match_id`, about a recorded one.
+    pub fn add_note(&self, steam_id: &str, text: &str, match_id: Option<i64>) -> Result<Value, String> {
+        let result = {
+            let mut state = self.state.lock().unwrap();
+            let context = match match_id {
+                Some(id) => state.history.note_context_for_match(id, steam_id).ok_or("That match is no longer in the history.")?,
+                None => state.note_context(steam_id),
+            };
+            state.history.add_note(steam_id, text, &context)
+        };
+        self.changed();
+        result
+    }
+
+    pub fn delete_note(&self, id: i64) -> Result<(), String> {
+        let result = self.state.lock().unwrap().history.delete_note(id);
         self.changed();
         result
     }

@@ -18,6 +18,8 @@ use std::collections::HashSet;
 
 #[derive(Default)]
 struct Current {
+    /// When this match started (this app's clock); notes written during it are linked by it.
+    started_at: i64,
     map: String,
     mode: String,
     self_id: String,
@@ -119,7 +121,7 @@ impl MatchState {
         // The last match's players stay visible (scoreboard, menu, after CS2 closes) until the next starts.
         if transition.started {
             self.finished = false;
-            self.current = Current::default();
+            self.current = Current { started_at: crate::model::now_ms(), ..Current::default() };
             self.spectated.clear();
             self.selected = None;
             self.excluded.clear();
@@ -230,7 +232,8 @@ impl MatchState {
             .map(|p| HistoryPlayer { snapshots: snapshots(&p), steam_id: p.steam_id, side: p.side, name: p.name })
             .collect();
         let result = match_result(g, &self.current.self_team);
-        self.history.record(&self.current.map, &self.current.mode, result, &self.current.self_id, players);
+        let started_at = Some(self.current.started_at).filter(|t| *t > 0);
+        self.history.record_match(started_at, &self.current.map, &self.current.mode, result, &self.current.self_id, players);
     }
 
     /// Applies likely sides from party links; never touches sides that are certain.
@@ -338,6 +341,19 @@ impl MatchState {
         })
     }
 
+    /// Where a note written now about `steam_id` belongs: this match (running, or the one just finished),
+    /// its map and mode, and the player's side.
+    pub fn note_context(&self, steam_id: &str) -> crate::match_history::NoteContext {
+        let side = self.players.get(steam_id).map(|p| p.side.clone()).unwrap_or_default();
+        crate::match_history::NoteContext {
+            map: self.current.map.clone(),
+            mode: self.current.mode.clone(),
+            side,
+            match_started_at: Some(self.current.started_at).filter(|t| *t > 0),
+            match_id: None,
+        }
+    }
+
     /// The match part of the UI state, with this app's played-before records attached to each player.
     pub fn view(&mut self, g: &GsiSummary) -> Value {
         self.infer_teams(g);
@@ -347,7 +363,6 @@ impl MatchState {
         let partners = frequent_partners(&players);
         let analyses = analysis::analyze_all(&players, analysis::Options { min_matches: self.min_sample_matches, now_ms: crate::model::now_ms() });
         let strongest = analysis::strongest(&players);
-        let noted = self.history.noted();
         let rows: Vec<Value> = players
             .iter()
             .map(|p| {
@@ -356,7 +371,10 @@ impl MatchState {
                     row["analysis"] = serde_json::to_value(&analyses[&p.steam_id]).unwrap_or(Value::Null);
                 }
                 row["strongest"] = (strongest.as_deref() == Some(p.steam_id.as_str())).into();
-                row["hasNote"] = noted.contains(&p.steam_id).into();
+                // Your notes on this player, newest first: the latest few travel with the match view.
+                let notes = self.history.notes_for(&p.steam_id);
+                row["hasNote"] = (!notes.is_empty()).into();
+                row["notes"] = Value::Array(notes.into_iter().take(5).collect());
                 if let Some(list) = partners.get(&p.steam_id) {
                     row["partners"] = serde_json::to_value(list).unwrap_or(Value::Null);
                 }

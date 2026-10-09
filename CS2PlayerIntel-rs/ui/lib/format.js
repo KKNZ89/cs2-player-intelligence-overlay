@@ -280,6 +280,26 @@ export function profileIndicator(player, { long = false, short = false } = {}) {
 }
 
 // Small markers beside a name: strongest by Premier, met before, profile review, your note.
+const NOTE_SIDE = { team: 'Teammate', enemy: 'Opponent' };
+const NOTE_RESULT = { win: 'Win', loss: 'Loss', tie: 'Tie' };
+
+/** When and where a note was written: "8 Oct, 21:14 · Premier · Mirage · Opponent · Loss". */
+export function noteMeta(note) {
+  const date = new Date(note.createdAt);
+  const year = date.getFullYear() === new Date().getFullYear() ? undefined : 'numeric';
+  const when = date.toLocaleString([], { day: 'numeric', month: 'short', year, hour: '2-digit', minute: '2-digit' });
+  const where = note.map || note.mode ? matchTitle({ connected: true, mode: note.mode, map: note.map }) : '';
+  return [when, where, NOTE_SIDE[note.side], NOTE_RESULT[note.result]].filter(Boolean).join(' · ');
+}
+
+/** Your notes on a player, newest first. `deletable` adds a Delete button (data-action="note-delete"). */
+export function notesHtml(notes, { deletable = false, limit = Infinity } = {}) {
+  if (!notes?.length) return '';
+  const items = notes.slice(0, limit).map(n => `<li><div class="note-meta"><span>${esc(noteMeta(n))}</span>${deletable ? `<button class="link note-delete" type="button" data-action="note-delete" data-note="${Number(n.id)}">Delete</button>` : ''}</div><div class="note-text">${esc(n.text)}</div></li>`);
+  const more = notes.length > limit ? `<li class="muted small">${notes.length - limit} older note${notes.length - limit === 1 ? '' : 's'} in the app</li>` : '';
+  return `<ul class="note-list">${items.join('')}${more}</ul>`;
+}
+
 // `history: false` (the overlay) leaves out the met-before count: match history is shown in the app only.
 export function statusIcons(player, { indicators = true, history = true } = {}) {
   const icons = [];
@@ -287,7 +307,11 @@ export function statusIcons(player, { indicators = true, history = true } = {}) 
   const met = history && player.localHistory?.all?.played;
   if (met) icons.push(`<span class="st seen" title="Met in ${met} earlier match${met === 1 ? '' : 'es'} recorded by this app">↺${met}</span>`);
   if (indicators && player.analysis?.indicator === 'review') icons.push(`<span class="st review" title="${esc(`Profile review: ${player.analysis.reasons.join('; ')}. A statistical discrepancy, not evidence of cheating.`)}">⚑</span>`);
-  if (player.hasNote) icons.push(`<span class="st note" title="You have a note on this player">${icon('note', { size: 12 })}</span>`);
+  if (player.hasNote) {
+    const latest = player.notes?.[0];
+    const summary = latest ? `${noteMeta(latest)}: ${latest.text.length > 140 ? `${latest.text.slice(0, 140)}…` : latest.text}${player.notes.length > 1 ? ` (+${player.notes.length - 1} more)` : ''}` : 'You have notes on this player';
+    icons.push(`<span class="st note" title="${esc(summary)}">${icon('note', { size: 12 })}</span>`);
+  }
   return icons.length ? `<span class="status-icons">${icons.join('')}</span>` : '';
 }
 
