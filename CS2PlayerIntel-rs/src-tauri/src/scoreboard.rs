@@ -5,6 +5,9 @@
 //! height. Nothing here relies on screen positions: each player's Steam avatar is searched for around that
 //! size, and the colour is read inside the box where it was found. Pixels that are part of the avatar
 //! picture itself are ignored, so a yellow avatar is not mistaken for the yellow teammate.
+//!
+//! The scoreboard also shows the two teams as separate blocks of rows, one above the other, with every
+//! avatar in the same column. Players in your block are your teammates; the other block is the opponents.
 
 use crate::capture::{classify, Frame, TeammateColour};
 
@@ -23,6 +26,47 @@ pub struct Found {
     pub colour: Option<TeammateColour>,
     /// How well the avatar matched (correlation, 1 = identical).
     pub score: f32,
+    /// Where the avatar is in the frame (top-left corner and size, in pixels).
+    pub x: usize,
+    pub y: usize,
+    pub size: usize,
+}
+
+/// Teams from where avatars sit: only avatars in the scoreboard's avatar column count (the top bar also
+/// shows avatars), and the column splits into blocks where rows stop following each other. With exactly
+/// two blocks and you in one of them, players in your block are "team" and the others "enemy". Anything
+/// less clear gives nothing.
+pub fn sides(found: &[Found], self_id: &str) -> Vec<(String, &'static str)> {
+    // The scoreboard column: the x position shared by the most avatars.
+    let Some(column) =
+        found.iter().map(|f| (f.x, found.iter().filter(|o| o.x.abs_diff(f.x) <= f.size / 3).count())).max_by_key(|(_, count)| *count).map(|(x, _)| x)
+    else {
+        return Vec::new();
+    };
+    let mut rows: Vec<&Found> = found.iter().filter(|f| f.x.abs_diff(column) <= f.size / 3).collect();
+    if rows.len() < 3 || !rows.iter().any(|f| f.steam_id == self_id) {
+        return Vec::new();
+    }
+    rows.sort_by_key(|f| f.y);
+    // Rows in a block follow each other about one avatar apart; the gap between the teams is much larger.
+    let size = rows.iter().map(|f| f.size).sum::<usize>() / rows.len();
+    let mut blocks: Vec<Vec<&Found>> = vec![vec![rows[0]]];
+    for pair in rows.windows(2) {
+        if pair[1].y - pair[0].y > size * 5 / 2 {
+            blocks.push(Vec::new());
+        }
+        blocks.last_mut().unwrap().push(pair[1]);
+    }
+    if blocks.len() != 2 {
+        return Vec::new();
+    }
+    let mine = usize::from(!blocks[0].iter().any(|f| f.steam_id == self_id));
+    blocks
+        .iter()
+        .enumerate()
+        .flat_map(|(i, block)| block.iter().map(move |f| (f.steam_id.clone(), if i == mine { "team" } else { "enemy" })))
+        .filter(|(id, _)| id != self_id)
+        .collect()
 }
 
 /// Blocks per side of the coarse avatar fingerprint compared during the search.
@@ -335,6 +379,9 @@ pub fn read(frame: &Frame, avatars: &[Avatar]) -> Vec<Found> {
             steam_id: avatars[i].steam_id.clone(),
             colour: colour_in_box(frame, &avatars[i], hit.x * factor, hit.y * factor, hit.size * factor),
             score: hit.score,
+            x: hit.x * factor,
+            y: hit.y * factor,
+            size: hit.size * factor,
         })
         .collect()
 }
@@ -461,6 +508,36 @@ mod tests {
             assert_eq!(colour_of(enemy), Some(None), "opponents have no colour");
         }
         assert!(found.iter().all(|f| f.score >= MIN_SCORE));
+
+        // The four coloured teammates and the yellow-picture one sit in one block, the opponents in another.
+        let teams = sides(&found, &all[0].steam_id);
+        let side_of = |avatar: &Avatar| teams.iter().find(|(id, _)| *id == avatar.steam_id).map(|(_, side)| *side);
+        assert_eq!(side_of(&all[0]), None, "you aren't assigned");
+        for mate in &all[1..5] {
+            assert_eq!(side_of(mate), Some("team"));
+        }
+        for enemy in &enemies {
+            assert_eq!(side_of(enemy), Some("enemy"));
+        }
+    }
+
+    fn at(id: &str, x: usize, y: usize) -> Found {
+        Found { steam_id: id.into(), colour: None, score: 0.95, x, y, size: 24 }
+    }
+
+    #[test]
+    fn teams_come_from_the_block_you_are_in() {
+        // Your team below the opponents this time, and one avatar found in the top bar instead.
+        let mut found: Vec<Found> = (0..5).map(|i| at(&format!("e{i}"), 640, 300 + i * 34)).collect();
+        found.extend((0..5).map(|i| at(&format!("t{i}"), 640, 560 + i * 34)));
+        found.push(at("top", 900, 20));
+        let teams = sides(&found, "t2");
+        assert_eq!(teams.iter().filter(|(_, s)| *s == "team").count(), 4);
+        assert_eq!(teams.iter().filter(|(_, s)| *s == "enemy").count(), 5);
+        assert!(!teams.iter().any(|(id, _)| id == "top" || id == "t2"));
+        assert!(sides(&found, "nobody").is_empty(), "without you on the scoreboard, nothing is assigned");
+        let one_block: Vec<Found> = (0..5).map(|i| at(&format!("p{i}"), 640, 300 + i * 34)).collect();
+        assert!(sides(&one_block, "p0").is_empty(), "one block can't tell the teams apart");
     }
 
     #[test]

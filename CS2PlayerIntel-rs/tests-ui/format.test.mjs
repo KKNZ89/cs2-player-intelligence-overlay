@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { colourClass, discovery, groups, issuesHtml, noteMeta, notesHtml, lobbyCount, matchTitle, playerChips, providerIssues, rosterCounts, winChance } from '../ui/lib/format.js';
+import { colourClass, discovery, groups, issuesHtml, noteMeta, notesHtml, sourcesOff, lobbyCount, matchTitle, playerChips, providerIssues, rosterCounts, winChance } from '../ui/lib/format.js';
 import { providerStatusText } from '../ui/lib/status.js';
 
 const players = count => Array.from({ length: count }, (_, i) => ({ steamId: String(76561198000000000n + BigInt(i)), name: `P${i}`, isSelf: i === 0, side: i === 0 ? 'team' : '' }));
@@ -119,4 +119,20 @@ test('notes show when and where they were written, and their text is escaped', (
   assert.match(html, /data-action="note-delete" data-note="7"/);
   assert.match(html, /1 older note in the app/);
   assert.equal(notesHtml([]), '');
+});
+
+test('players placed from the scoreboard are confirmed and labelled', () => {
+  const state = { match: { teams: true, maxPlayers: 10 }, players: [{ steamId: '1', isSelf: true }, { steamId: '2', source: 'steam-coplay', seenAt: Date.now(), side: 'enemy', sideSource: 'scoreboard', sideReason: "In the other team on CS2's scoreboard" }] };
+  assert.equal(discovery(state.players[1], state).kind, 'confirmed');
+  assert.equal(rosterCounts(state).confirmed, 2);
+  const chips = playerChips(state.players[1], { state });
+  assert.match(chips, /Scoreboard/);
+  assert.doesNotMatch(chips, /Recently played/);
+});
+
+test('switched-off sources are named for the notice', () => {
+  assert.equal(sourcesOff({}), 'CSStats and CSRep');
+  assert.equal(sourcesOff({ csstatsEnabled: true }), 'CSRep');
+  assert.equal(sourcesOff({ csstatsEnabled: true, hasCsrepApiKey: true }), '', 'a CSRep key counts as on');
+  assert.equal(sourcesOff({ csstatsEnabled: true, csrepPagesEnabled: true }), '');
 });

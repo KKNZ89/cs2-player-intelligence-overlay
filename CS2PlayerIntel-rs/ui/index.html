@@ -72,6 +72,7 @@
           </article>
         </section>
 
+        <div id="sourcesNotice" class="notices sources-notice" hidden></div>
         <section id="lobbySummary" class="panel lobby-summary" hidden aria-label="Lobby summary"></section>
 
         <section class="section-head">
@@ -141,7 +142,7 @@
                 <header class="panel-head"><h2>Overlay</h2><span class="muted small">Pin the overlay to see changes live</span></header>
                 <label class="switch"><input id="holdTab" type="checkbox"><span class="track"></span><span class="switch-text"><b>Hold Tab in CS2</b><small>Compact view while held; Ctrl+Tab for the expanded view</small></span></label>
                 <label class="switch"><input id="escInteractive" type="checkbox"><span class="track"></span><span class="switch-text"><b>Clickable overlay in the Esc menu</b><small>Press Esc in a match to click players, expand their details and refresh them</small></span></label>
-                <label class="switch"><input id="scoreboardColours" type="checkbox"><span class="track"></span><span class="switch-text"><b>Teammate colours from the scoreboard</b><small>Off by default. While you hold Tab in a match, the app takes one picture of the CS2 window (not your screen) and reads each teammate's colour next to their avatar, then shows it as a ring in the overlay. It uses Windows screen capture, as OBS does, and never reads game memory. Some anti-cheats dislike capture of the game window, so turn this on at your own risk.</small></span></label>
+                <label class="switch"><input id="scoreboardColours" type="checkbox"><span class="track"></span><span class="switch-text"><b>Read CS2's scoreboard (teams and colours)</b><small>Off by default. While you hold Tab in a match, the app takes one picture of the CS2 window (not your screen), puts every player it finds in your team or the other, and reads each teammate's colour, shown as a ring around the avatar. It uses Windows screen capture, as OBS does, and never reads game memory. Some anti-cheats dislike capture of the game window, so turn this on at your own risk.</small></span></label>
                 <div class="field">
                   <span class="field-label">Compact layout</span>
                   <div class="segmented-input" role="radiogroup">
@@ -360,7 +361,7 @@
             <dt><kbd>F8</kbd></dt><dd>Keeps the overlay on screen until you press it again.</dd>
             <dt><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>O</kbd></dt><dd>Opens this window from anywhere.</dd>
           </dl>
-          <p>Teammate colours: turn on <b>Teammate colours from the scoreboard</b> in Settings → Overlay. Hold Tab for a moment in a Premier, Competitive or Wingman match and the overlay shows each teammate's CS2 colour as the ring around their avatar. It's off by default because it captures the CS2 window.</p>
+          <p>Teams and colours: turn on <b>Read CS2's scoreboard</b> in Settings → Overlay. Hold Tab for a moment in a match and the app puts everyone in your team or the other one (marked "Scoreboard"), and shows each teammate's CS2 colour as the ring around their avatar. Your own Team/Enemy choice always wins. It's off by default because it captures the CS2 window.</p>
           <p>F8 and the clickable-overlay key can be changed in Settings → Hotkeys. Use your configured clickable-overlay key for mouse navigation: the overlay temporarily takes focus so you can click player cards and profile links, even if CS2 keeps its own cursor captured. Press Esc or the shortcut again to exit, then click back into CS2. Switching to another window also ends mouse navigation. The automatic Esc-menu view and Tab views do not take focus.</p>
           <p><b>Not assigned</b> means the player's team is not known, not that the player is missing. Steam's recent-player list does not identify teams. Choose Teammate/Opponent on the Match page, or Team/Enemy in an Esc-menu player card. Players you spectate on your own side in Competitive, Premier or Wingman can be confirmed automatically; party-based and inferred assignments are labelled and can be corrected manually.</p>
         </article>

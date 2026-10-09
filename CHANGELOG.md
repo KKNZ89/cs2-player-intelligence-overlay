@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.2
+
+- Automatic teams: with scoreboard reading on, everyone on CS2's scoreboard is put in your team or the other one while you hold Tab, so "Not assigned" goes away. Your own choice and spectating still win.
+- The Match page says when CSStats or CSRep is switched off (the usual reason for N/A values), with a button to Settings → Data sources. N/A tooltips for a switched-off source say where to turn it on.
+
 ## 1.0.1
 
 A maintenance release with no feature changes. Copies on 1.0.0 update to it by themselves: it confirms that automatic updates from GitHub releases install over the current version, without uninstalling, and keep your settings, history and notes.

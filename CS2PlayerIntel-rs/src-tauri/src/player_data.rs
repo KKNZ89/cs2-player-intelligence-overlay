@@ -178,7 +178,7 @@ impl PlayerData {
     /// whether anything changed.
     pub fn set_inferred_side(&mut self, steam_id: &str, side: &str, reason: &str) -> bool {
         let Some(player) = self.get_mut(steam_id) else { return false };
-        if player.is_self || matches!(player.side_source, SideSource::Manual | SideSource::Spectated) {
+        if player.is_self || matches!(player.side_source, SideSource::Manual | SideSource::Spectated | SideSource::Scoreboard) {
             return false;
         }
         let (source, reason) = if side.is_empty() { (SideSource::None, "") } else { (SideSource::Likely, reason) };
@@ -189,6 +189,26 @@ impl PlayerData {
         player.side_source = source;
         player.side_reason = reason.into();
         true
+    }
+
+    /// A side read from CS2's scoreboard. Your own choice and spectating (which proves a teammate) win.
+    pub fn set_scoreboard_side(&mut self, steam_id: &str, side: &str) -> bool {
+        let Some(player) = self.get_mut(steam_id) else { return false };
+        if player.is_self || matches!(player.side_source, SideSource::Manual | SideSource::Spectated) || !matches!(side, "team" | "enemy") {
+            return false;
+        }
+        if player.side == side && player.side_source == SideSource::Scoreboard {
+            return false;
+        }
+        player.side = side.into();
+        player.side_source = SideSource::Scoreboard;
+        player.side_reason = if side == "team" { "In your team on CS2's scoreboard" } else { "In the other team on CS2's scoreboard" }.into();
+        true
+    }
+
+    /// Whether some player's side is still not certain.
+    pub fn wants_sides(&self) -> bool {
+        self.players.iter().any(|p| !p.is_self && !p.side_source.is_certain())
     }
 
     /// A teammate revealed by GSI while you spectate. Your own choice for that player always wins.

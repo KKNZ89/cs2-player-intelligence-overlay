@@ -31,6 +31,14 @@ function reason(player, provider) {
   return `${NAMES[provider]}: ${providerStatusText(result)}`;
 }
 
+/** Sources that are switched off, as "CSStats and CSRep", or '' when all are on. */
+export function sourcesOff(settings = {}) {
+  const off = [];
+  if (settings.csstatsEnabled !== true) off.push('CSStats');
+  if (settings.csrepPagesEnabled !== true && !settings.hasCsrepApiKey) off.push('CSRep');
+  return off.join(' and ');
+}
+
 export function na(why, { loading = false } = {}) {
   return loading ? `<span class="na loading" title="${esc(why)}"><i></i></span>` : `<span class="na" title="${esc(why)}">N/A</span>`;
 }
@@ -350,6 +358,7 @@ const DROP_IN_STALE_MS = 10 * 60_000;
 export function discovery(player, state = {}) {
   if (player.isSelf) return { kind: 'confirmed', label: '', title: '' };
   if (player.source === 'gsi-spectated' || player.sideSource === 'spectated') return { kind: 'confirmed', label: 'Spectated', title: 'Confirmed: you spectated this player in this match' };
+  if (player.sideSource === 'scoreboard') return { kind: 'confirmed', label: 'On scoreboard', title: "Confirmed: seen on CS2's scoreboard in this match" };
   if (player.confidence === 'user-selected' || player.source === 'manual') return { kind: 'confirmed', label: 'Added by you', title: 'You added this player' };
   const when = player.seenAt ? ago(player.seenAt) : '';
   if (player.source === 'console-status') return { kind: 'possible', label: 'Console', title: `Seen in CS2's status output${when ? ` ${when}` : ''}; not confirmed for this match` };
@@ -394,8 +403,9 @@ export function issuesHtml(player) {
 export function playerChips(player, { inferred = false, state = {} } = {}) {
   const chips = [];
   const found = discovery(player, state);
-  if (found.label && player.sideSource !== 'spectated') chips.push(`<span class="chip ${found.kind === 'possible' ? 'possible' : ''}" title="${esc(found.title)}">${esc(found.label)}</span>`);
+  if (found.label && !['spectated', 'scoreboard'].includes(player.sideSource)) chips.push(`<span class="chip ${found.kind === 'possible' ? 'possible' : ''}" title="${esc(found.title)}">${esc(found.label)}</span>`);
   if (player.sideSource === 'spectated') chips.push('<span class="chip ct" title="Confirmed: you spectated this player after dying">Spectated</span>');
+  if (player.sideSource === 'scoreboard') chips.push(`<span class="chip ct" title="${esc(player.sideReason || "Team read from CS2's scoreboard")}">Scoreboard</span>`);
   if (player.sideSource === 'likely') chips.push(`<span class="chip likely" title="${esc(player.sideReason || 'In the same Steam party as a known player')}">Likely · party</span>`);
   if (player.party?.friend) chips.push(`<span class="chip" title="Your Steam friend${player.party.lobby ? ', in a party' : ''}">Friend</span>`);
   if (inferred) chips.push('<span class="chip t" title="The remaining players once your whole team is known">Inferred</span>');

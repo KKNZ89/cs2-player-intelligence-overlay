@@ -81,7 +81,7 @@ For reliable mouse navigation, press your configured clickable-overlay shortcut 
 - Missing data shows **N/A** with the reason on hover, never 0. A missing CSRep result is never shown as a clean record.
 - When several sources publish the same value, the first in your **source priority** wins (Settings → Data sources).
 - **Profile flag** (Normal / Review / Not enough data): compares Premier rating with FACEIT level, CS2 hours, account age and Leetify aim. Two or more mismatches mean Review, and every flag lists its reasons. It is a hint, never a verdict, and there are no cheat probabilities.
-- **Teams** come from what is known about this match, never from statistics: players you spectate after dying are teammates (Competitive, Premier, Wingman), friends in one Steam party share a side, and once your team is complete the rest are opponents. Your own Team or Enemy choice always wins.
+- **Teams** come from what is known about this match, never from statistics: CS2's scoreboard (with scoreboard reading on), players you spectate after dying (Competitive, Premier, Wingman), friends in one Steam party, and once your team is complete the rest are opponents. Your own Team or Enemy choice always wins.
 - **Not assigned** means the player's team is unknown. Steam's recent-player list does not supply teams, so a complete player list can still have unassigned players. Choose **Teammate/Opponent** in the dashboard or **Team/Enemy** in an Esc-menu player card. Party-based and inferred assignments are labelled; correct a wrong assignment manually rather than relying on a guess.
 - **Win chance** (off by default) is a rough estimate from average Premier rating and is labelled as such.
 - **Live stats** cover only you. CS2's Game State Integration (GSI) gives no live data about other players, and the app never estimates it.
@@ -92,14 +92,17 @@ Finished matches are saved in a local SQLite database: who you played with or ag
 
 **Notes on players.** Write as many notes about a player as you like: in their details on the Match page, in the overlay's player card (press Shift+F8 so the overlay takes keyboard input), or on the History page for a past match. Each note keeps the date and time, the map and mode, whether the player was with or against you, and the match it was written in (with its result once the match is recorded). When you meet the player again, their notes show in the overlay card and the dashboard, newest first; a pencil marks noted players.
 
-**Teammate colours (optional, off by default)**
+**Teams and teammate colours from the scoreboard (optional, off by default)**
 
-CS2 gives each teammate a colour (yellow, purple, green, blue, orange) on the radar and scoreboard, but doesn't share it with other apps. With **Teammate colours from the scoreboard** on (Settings → Overlay), the app takes one picture of the CS2 window while you hold Tab in a match, finds each player's Steam avatar on the scoreboard, and reads the colour CS2 draws in it. The colour then shows as the ring around that player's avatar in the overlay and dashboard.
+CS2's scoreboard shows who is in which team, and gives each teammate a colour (yellow, purple, green, blue, orange), but the game doesn't share either with other apps. With **Read CS2's scoreboard** on (Settings → Overlay), the app takes one picture of the CS2 window while you hold Tab in a match and finds each player's Steam avatar on the scoreboard.
+
+- **Teams:** the scoreboard shows the two teams as separate blocks. Players in your block become teammates and the others opponents, marked "Scoreboard". Your own Team/Enemy choice always wins, and spectating a player still confirms them as a teammate.
+- **Colours:** the colour CS2 draws in each avatar shows as the ring around that player's avatar in the overlay and dashboard.
 
 - It captures only the CS2 window, through Windows Graphics Capture (the API screen recorders use). It never reads game memory, and the app's overlay is not part of the picture.
 - It works at any resolution or HUD scale: avatars are searched for, not looked up at fixed positions. The colour values come from CS2's own interface files.
-- It reads at most once every 20 seconds and stops when every colour is known. Each read takes well under a second, in the background.
-- It needs CS2's default `cl_teammate_colors_show 1` and visible avatars, and only works in modes that assign colours (Premier, Competitive, Wingman). Players with identical avatars (such as the default one) can't be told apart and get no colour.
+- It reads at most once every 20 seconds and stops when every team and colour is known. Each read takes well under a second, in the background.
+- Teams need your own avatar on the scoreboard and work in every team mode (not Deathmatch). Colours need CS2's default `cl_teammate_colors_show 1` and only appear in modes that assign them (Premier, Competitive, Wingman). Avatars must be visible; players with identical avatars (such as the default one) can't be told apart and are left as they are.
 - Some anti-cheats dislike capture of the game window. Turn it on at your own risk.
 
 **Other**

@@ -401,3 +401,6 @@ th.sorted.asc::after { content: ' ↑'; }
 
 .history-notes td, .history-note-add td { padding-top: 0; white-space: normal; }
 .history-note-add .input-row { max-width: 640px; }
+
+.sources-notice { margin-bottom: 16px; }
+.sources-notice .button-row { margin-top: 2px; }

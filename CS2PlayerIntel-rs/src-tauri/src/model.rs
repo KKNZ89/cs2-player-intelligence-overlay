@@ -69,7 +69,7 @@ pub struct Party {
     pub server: String,
 }
 
-/// Where a player's side came from. `Self_`, `Manual` and `Spectated` are certain; `Likely` is inferred.
+/// Where a player's side came from. `Own`, `Manual`, `Spectated` and `Scoreboard` are certain; `Likely` is inferred.
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum SideSource {
@@ -80,12 +80,14 @@ pub enum SideSource {
     Own,
     Manual,
     Spectated,
+    /// Your team or the other on CS2's scoreboard.
+    Scoreboard,
     Likely,
 }
 
 impl SideSource {
     pub fn is_certain(self) -> bool {
-        matches!(self, Self::Own | Self::Manual | Self::Spectated)
+        matches!(self, Self::Own | Self::Manual | Self::Spectated | Self::Scoreboard)
     }
 }
 

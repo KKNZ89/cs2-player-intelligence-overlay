@@ -1093,9 +1093,10 @@ impl Engine {
         if !open || !self.settings().scoreboard_colours {
             return;
         }
+        let teams = self.state.lock().unwrap().mode(&self.gsi_summary()).teams;
         let wanted = {
             let state = self.state.lock().unwrap();
-            state.active() && state.players.wants_colours()
+            state.active() && (state.players.wants_colours() || (teams && state.players.wants_sides()))
         };
         {
             let mut misc = self.misc.lock().unwrap();
@@ -1174,16 +1175,24 @@ impl Engine {
             let (found, frame) =
                 tauri::async_runtime::spawn_blocking(move || (crate::scoreboard::read(&frame, &avatars), frame)).await.map_err(|e| e.to_string())?;
             let coloured: Vec<_> = found.iter().filter_map(|f| f.colour.map(|c| (f.steam_id.clone(), c.name()))).collect();
+            let teams = self.state.lock().unwrap().mode(&self.gsi_summary()).teams;
+            let sides = if teams { crate::scoreboard::sides(&found, &self.own_steam_id()) } else { Vec::new() };
             let changed = {
                 let mut state = self.state.lock().unwrap();
-                coloured.iter().fold(false, |changed, (id, colour)| state.players.set_colour(id, colour) || changed)
+                let coloured_changed = coloured.iter().fold(false, |changed, (id, colour)| state.players.set_colour(id, colour) || changed);
+                sides.iter().fold(coloured_changed, |changed, (id, side)| state.players.set_scoreboard_side(id, side) || changed)
             };
             self.diagnostics.log(
                 Level::Info,
                 "scoreboard-colours",
-                &format!("Scoreboard read: {} of {looked_for} avatars found, {} teammate colours.", found.len(), coloured.len()),
+                &format!(
+                    "Scoreboard read: {} of {looked_for} avatars found, {} teammate colours, {} players placed in teams.",
+                    found.len(),
+                    coloured.len(),
+                    sides.len()
+                ),
             );
-            if coloured.is_empty() {
+            if coloured.is_empty() && sides.is_empty() {
                 // Kept for checking what the app saw; overwritten each time, never sent anywhere.
                 let file = self.diagnostics.file.with_file_name("scoreboard-last.png");
                 if frame.save_png(&file).is_ok() {

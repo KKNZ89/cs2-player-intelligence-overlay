@@ -1,7 +1,7 @@
 // Human-readable provider and roster statuses.
 
 const LABELS = {
-  ok: 'Loaded', pending: 'Loading…', disabled: 'Off in Settings',
+  ok: 'Loaded', pending: 'Loading…', disabled: 'off: turn it on in Settings → Data sources',
   'missing-api-key': 'Add API key', 'auth-failed': 'Check API key',
   'auth-required': 'Sign in needed', 'verification-required': 'Open the profile, complete verification, then refresh',
   'consent-required': 'Open the profile, choose cookie preferences, then refresh',

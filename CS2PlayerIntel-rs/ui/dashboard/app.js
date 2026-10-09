@@ -2,7 +2,7 @@ import { byId, esc, setClass, setHidden, setHtml, setText } from '../lib/dom.js'
 import { providerStatusText, rosterSummaryText, updateText } from '../lib/status.js';
 import { renderLiveStats } from '../lib/live-stats.js';
 import { icon } from '../lib/icons.js';
-import { SHARED, ago, avatar, colourClass, columns as c, displayName, groups, history, isNum, issuesHtml, matchTitle, playerChips, playerName, profileIndicator, rosterCounts, roundText, scoreHtml, setPriority, setPrivacy, statusIcons, teamAverages, valueOf, winChance } from '../lib/format.js';
+import { SHARED, ago, avatar, colourClass, columns as c, displayName, groups, history, isNum, issuesHtml, matchTitle, sourcesOff, playerChips, playerName, profileIndicator, rosterCounts, roundText, scoreHtml, setPriority, setPrivacy, statusIcons, teamAverages, valueOf, winChance } from '../lib/format.js';
 import { renderPlayerDetails } from './details.js';
 import { bindHistory, loadHistory } from './history.js';
 import { api } from '../lib/bridge.js';
@@ -531,6 +531,23 @@ async function loadLog() {
 
 // ---- render -------------------------------------------------------------------------------------
 
+// A source switched off explains many N/A values; say so once, with a way to turn it on. Hiding the
+// notice is remembered on this PC.
+const NOTICE_KEY = 'sourcesNoticeHidden';
+function noticeHidden() {
+  try { return localStorage.getItem(NOTICE_KEY) === '1'; } catch { return false; }
+}
+
+function renderSourcesNotice(state) {
+  const off = sourcesOff(state.settings);
+  const show = Boolean(off) && (state.players || []).length > 0 && !noticeHidden();
+  setHidden(els.sourcesNotice, !show);
+  if (!show) return;
+  const missing = [off.includes('CSStats') && 'K/D, ADR and HS %', off.includes('CSRep') && 'the CSRep Trust Score'].filter(Boolean).join(' and ');
+  setHtml(els.sourcesNotice, `<p>${icon('alert', { size: 14 })}<span>${off} ${off.includes(' and ') ? 'are' : 'is'} off, so ${missing} often show N/A. Reading their pages is opt-in: check their terms, then turn ${off.includes(' and ') ? 'them' : 'it'} on.</span></p>
+    <div class="button-row"><button class="btn small" type="button" data-notice="open">Open Data sources</button><button class="btn ghost small" type="button" data-notice="hide">Don't show again</button></div>`);
+}
+
 function render(state) {
   lastState = state;
   document.documentElement.dataset.theme = state.settings?.theme === 'light' ? 'light' : 'dark';
@@ -544,6 +561,7 @@ function render(state) {
     renderGuide(state);
     renderLiveStats(els.liveStats, state.gsi || {}, { tiles: true });
     renderCoverage(state);
+    renderSourcesNotice(state);
     renderLobbySummary(state);
     const last = state.lastMatch;
     setText(els.rosterHint, last
@@ -663,6 +681,17 @@ function bindSettings() {
 
 function bind() {
   bindHistory(message => toast(message));
+  els.sourcesNotice.addEventListener('click', event => {
+    const button = /** @type {HTMLElement | null} */ (/** @type {Element} */ (event.target).closest('button[data-notice]'));
+    if (!button) return;
+    if (button.dataset.notice === 'open') {
+      showView('settings');
+      showSection('data');
+    } else {
+      try { localStorage.setItem(NOTICE_KEY, '1'); } catch { /* the notice just shows again next time */ }
+      setHidden(els.sourcesNotice, true);
+    }
+  });
   for (const item of /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('.nav-item'))) item.addEventListener('click', () => showView(item.dataset.view));
   els.playersBody.addEventListener('click', handleAction);
   els.lobbySummary.addEventListener('click', handleAction);

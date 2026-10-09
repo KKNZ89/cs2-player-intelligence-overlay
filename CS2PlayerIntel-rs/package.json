@@ -1,7 +1,7 @@
 {
   "name": "cs2-player-intel",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Local CS2 companion: identifies the players in your match and shows CSRep, Leetify, CSStats and Steam data in an overlay.",
   "license": "MIT",
   "author": "KKNZ89 (https://github.com/KKNZ89)",
