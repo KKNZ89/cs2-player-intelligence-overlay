@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.1
+
+A maintenance release with no feature changes. Copies on 1.0.0 update to it by themselves: it confirms that automatic updates from GitHub releases install over the current version, without uninstalling, and keep your settings, history and notes.
+
 ## 1.0.0
 
 First public release.
