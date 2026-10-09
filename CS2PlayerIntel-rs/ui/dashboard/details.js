@@ -2,7 +2,7 @@
 // measured values, inferred indicators and your own notes stay visibly separate.
 import { esc } from '../lib/dom.js';
 import { providerStatusText } from '../lib/status.js';
-import { columns as c, avatar, displayName, history, isNum, mapRecord, na, notesHtml, playerName, premierPeak, profileIndicator, shownId, statusIcons } from '../lib/format.js';
+import { columns as c, avatar, displayName, history, isNum, mapBreakdown, mapRecord, na, notesHtml, sparkline, playerName, premierPeak, profileIndicator, shownId, statusIcons } from '../lib/format.js';
 
 const metric = (label, value, note = '') => `<div class="metric"><span>${label}</span><b>${value}</b>${note ? `<small>${note}</small>` : ''}</div>`;
 const section = (title, content, aside = '') => `<section class="detail-section"><h3>${title}${aside ? `<span class="h3-aside">${aside}</span>` : ''}</h3>${content}</section>`;
@@ -125,7 +125,14 @@ function matches(p) {
   const rows = recent.slice(0, 30).map(m => `<tr><td>${date(m.finishedAt)}</td><td>${esc(SOURCE[m.dataSource] || m.dataSource || '—')}</td><td>${esc((m.map || '').replace(/^(de|cs)_/, ''))}</td>
     <td><span class="match-chip small ${m.outcome}">${OUTCOME[m.outcome] || '?'}</span> ${Array.isArray(m.score) ? m.score.join(':') : ''}</td><td>${rank(m)}</td><td class="num">${isNum(m.leetifyRating) ? m.leetifyRating.toFixed(2) : '—'}</td></tr>`).join('');
   const faceit = p.faceit?.recentResults;
+  const byMap = mapBreakdown(recent).map(m => {
+    const decided = m.won + m.lost + m.tied;
+    return `<tr><td>${esc(m.map.replace(/^(de|cs)_/, ''))}</td><td class="num">${m.played}</td><td class="num">${m.won}–${m.lost}${m.tied ? `–${m.tied}` : ''}</td>
+      <td class="num">${decided ? `${Math.round((m.won / decided) * 100)}%` : '—'}</td><td class="num">${isNum(m.rating) ? `${m.rating > 0 ? '+' : ''}${m.rating.toFixed(2)}` : '—'}</td><td>${sparkline(m.ratings)}</td></tr>`;
+  }).join('');
   return premierChart(p)
+    + section('By map', `<table class="detail-table"><thead><tr><th>Map</th><th class="num">Matches</th><th class="num">W–L</th><th class="num">Win %</th><th class="num">Avg Leetify rating</th><th>Rating trend</th></tr></thead><tbody>${byMap}</tbody></table>
+      <p class="muted small">From the same Leetify matches, oldest to newest in the trend. Shown live, never stored.</p>`, `${recent.length} matches`)
     + section('Recent matches', `<table class="detail-table matches-table"><thead><tr><th>Date</th><th>Source</th><th>Map</th><th>Result</th><th>Rank then</th><th class="num">Leetify rating</th></tr></thead><tbody>${rows}</tbody></table>
       <p class="muted small">From Leetify, newest first, shown live and never stored.</p>`, `${Math.min(30, recent.length)} of ${recent.length}`)
     + (Array.isArray(faceit) && faceit.length ? section('FACEIT recent results', `<div class="match-strip">${faceit.map(r => `<span class="match-chip ${r}">${OUTCOME[r]}</span>`).join('')}</div>`, 'FACEIT API') : '');

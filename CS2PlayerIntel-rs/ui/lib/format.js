@@ -288,6 +288,37 @@ export function profileIndicator(player, { long = false, short = false } = {}) {
 }
 
 // Small markers beside a name: strongest by Premier, met before, profile review, your note.
+/** A small trend line through the numbers, oldest first (gaps skipped). '' with fewer than two. */
+export function sparkline(values, { width = 90, height = 22 } = {}) {
+  const points = values.map((v, i) => [i, v]).filter(([, v]) => isNum(v));
+  if (points.length < 2) return '';
+  const ys = points.map(([, v]) => v);
+  const [min, max] = [Math.min(...ys), Math.max(...ys)];
+  const last = values.length - 1 || 1;
+  const xy = points.map(([i, v]) => `${((i / last) * (width - 4) + 2).toFixed(1)},${(max === min ? height / 2 : height - 2 - ((v - min) / (max - min)) * (height - 4)).toFixed(1)}`);
+  return `<svg class="spark" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" aria-hidden="true"><polyline points="${xy.join(' ')}"/></svg>`;
+}
+
+/** A player's recent Leetify matches grouped by map, most played first: results, average Leetify rating, and
+ * the ratings oldest first for the trend. Computed for display only; Leetify data is not stored. */
+export function mapBreakdown(recent) {
+  const maps = new Map();
+  for (const m of [...(recent || [])].reverse()) {
+    if (!m.map) continue;
+    const entry = maps.get(m.map) || { map: m.map, played: 0, won: 0, lost: 0, tied: 0, ratings: [] };
+    entry.played += 1;
+    if (m.outcome === 'win') entry.won += 1;
+    else if (m.outcome === 'loss') entry.lost += 1;
+    else if (m.outcome === 'tie') entry.tied += 1;
+    entry.ratings.push(isNum(m.leetifyRating) ? m.leetifyRating : null);
+    maps.set(m.map, entry);
+  }
+  return [...maps.values()].map(e => {
+    const rated = e.ratings.filter(isNum);
+    return { ...e, rating: rated.length ? rated.reduce((a, b) => a + b, 0) / rated.length : null };
+  }).sort((a, b) => b.played - a.played || a.map.localeCompare(b.map));
+}
+
 const NOTE_SIDE = { team: 'Teammate', enemy: 'Opponent' };
 const NOTE_RESULT = { win: 'Win', loss: 'Loss', tie: 'Tie' };
 

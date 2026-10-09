@@ -45,10 +45,16 @@ const SHIM = `(() => {
     players: PEOPLE.map(([name, side, met, hours, trust, level, elo, kd, hs], i) => ({ steamId: String(76561198012345671n + BigInt(i)), name, side, met, hasNote: name === 'Halcyon',
       notes: name === 'Halcyon' ? [{ id: 3, text: 'Rushes B with the AWP every pistol round.', createdAt: MATCHES.matches[0].endedAt - 900000, map: 'de_mirage', mode: 'premier', side: 'enemy', matchId: 42, result: 'loss' }] : [],
       values: Object.fromEntries([['steam.hoursCs2', hours], ['csrep.trust', trust], ['faceit.level', level], ['faceit.elo', elo], ['csstats.kd', kd], ['csstats.hs', hs]].filter(([, v]) => v !== null)) })) };
+  const trend = (ks, ds) => ks.map((k, i) => ({ endedAt: t - (ks.length - i) * day, result: k >= ds[i] ? 'win' : 'loss', kills: k, deaths: ds[i] }));
+  const PERF = { maps: [
+    { map: 'de_mirage', played: 14, won: 8, lost: 5, tied: 1, withStats: 12, kills: 221, deaths: 187, assists: 52, mvps: 31, matches: trend([14, 18, 22, 15, 19, 24, 17, 21, 20, 23, 16, 22], [17, 16, 15, 18, 14, 16, 15, 14, 17, 15, 18, 12]) },
+    { map: 'de_nuke', played: 9, won: 3, lost: 6, tied: 0, withStats: 9, kills: 128, deaths: 151, assists: 30, mvps: 14, matches: trend([12, 15, 11, 16, 14, 13, 17, 15, 15], [18, 17, 19, 16, 17, 15, 16, 17, 16]) },
+    { map: 'de_ancient', played: 5, won: 3, lost: 2, tied: 0, withStats: 4, kills: 70, deaths: 61, assists: 14, mvps: 9, matches: trend([16, 19, 17, 18], [15, 16, 14, 16]) }
+  ] };
   const params = new URLSearchParams(location.search);
   const state = fetch('/__state?variant=' + (params.get('variant') || 'default')).then(r => r.json());
   window.__TAURI__ = {
-    core: { invoke: command => command === 'state_get' ? state : command === 'diagnostics_recent' ? Promise.resolve([]) : command === 'player_history' ? Promise.resolve(RECORD) : command === 'history_matches' ? Promise.resolve(MATCHES) : command === 'history_match' ? Promise.resolve(MATCH) : command === 'history_stats' ? Promise.resolve({ matches: 42, players: 311, snapshots: 2876, notes: 3, file: 'C:/Users/you/AppData/Roaming/nz.local.cs2playerintel/history.sqlite', bytes: 851968, error: '' }) : Promise.resolve(true) },
+    core: { invoke: command => command === 'state_get' ? state : command === 'diagnostics_recent' ? Promise.resolve([]) : command === 'player_history' ? Promise.resolve(RECORD) : command === 'history_matches' ? Promise.resolve(MATCHES) : command === 'history_match' ? Promise.resolve(MATCH) : command === 'history_performance' ? Promise.resolve(PERF) : command === 'history_stats' ? Promise.resolve({ matches: 42, players: 311, snapshots: 2876, notes: 3, file: 'C:/Users/you/AppData/Roaming/nz.local.cs2playerintel/history.sqlite', bytes: 851968, error: '' }) : Promise.resolve(true) },
     event: { listen: () => Promise.resolve(() => {}) }
   };
 })();`;

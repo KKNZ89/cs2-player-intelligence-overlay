@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.3
+
+- Steam rate limits: when Steam keeps limiting profile requests, lookups pause for longer each time (10, 20, 40, then 60 minutes) instead of retrying every few minutes, and the log says so once. Steam profiles are reused for 12 hours.
+- With a Steam Web API key, profiles come from Steam's API rather than the rate-limited community pages, and a rate limit on the community pages no longer pauses the API (each has its own pause).
+- Scoreboard reading waits until players' Steam avatars are known, keeps its debug picture at most every 30 minutes, and shows the colour of every player (CS2 colours both teams).
+- Optional CSRep sign-in (Settings → Data sources): signed-in visitors see CSRep's stats overview, so K/D, ADR, HLTV rating, KAST and time to damage come from CSRep too. Status shows Signed in / Not signed in, like CSStats. CSRep's "Sign in with Steam" pop-up now opens (the sign-in window allowed no pop-ups before).
+- Your performance by map: each recorded match now also keeps your own kills, deaths, assists, MVPs and score from CS2, and the History page shows per map your matches, W–L–T, win rate, K/D, kills and MVPs per match, and a K/D trend over your last 20 matches there.
+- Player details → Matches shows a By map table from the player's recent Leetify matches (works for you too): matches, W–L, win rate, average Leetify rating and its trend. It is shown live and never stored.
+- Fixed CSRep and CSStats lookups failing with "a webview with label … already exists" right after their hidden window was closed.
+
 ## 1.0.2
 
 - Automatic teams: with scoreboard reading on, everyone on CS2's scoreboard is put in your team or the other one while you hold Tab, so "Not assigned" goes away. Your own choice and spectating still win.

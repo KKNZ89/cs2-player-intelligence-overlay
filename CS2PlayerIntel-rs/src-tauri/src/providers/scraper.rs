@@ -203,6 +203,13 @@ impl Breaker {
     }
 }
 
+/// Pop-ups a provider opens to sign in: its own pages, and Steam's sign-in. Anything else (ads) stays shut.
+fn is_sign_in_popup(url: &url::Url) -> bool {
+    let host = url.host_str().unwrap_or_default();
+    let on = |domain: &str| host == domain || host.ends_with(&format!(".{domain}"));
+    url.scheme() == "https" && (on("csrep.gg") || on("csstats.gg") || on("steamcommunity.com") || on("steampowered.com"))
+}
+
 /// Runs before each page's own scripts. Some sites (csstats.gg after "Load stats") ask "Leave site?" when
 /// the window moves on; in a hidden window that dialog pops up on its own and blocks every later lookup.
 /// Pages here can't register that prompt.
@@ -226,6 +233,8 @@ pub struct PageScraper {
     activity: Arc<AtomicU64>,
     hidden: Arc<Mutex<Option<WebviewWindow>>>,
     visible: Mutex<Option<WebviewWindow>>,
+    /// Numbers each hidden window: one closed when idle can still be shutting down when the next opens.
+    windows_made: AtomicU64,
 }
 
 /// Runs on normal completion and when an awaiting task is aborted.
@@ -256,15 +265,18 @@ impl PageScraper {
             activity: Arc::new(AtomicU64::new(0)),
             hidden: Arc::new(Mutex::new(None)),
             visible: Mutex::new(None),
+            windows_made: AtomicU64::new(0),
         }
     }
 
-    fn builder(&self, label: &str, url: url::Url) -> WebviewWindowBuilder<'_, tauri::Wry, AppHandle> {
+    /// `sign_in_popups`: the visible window lets sign-in pop-ups open (CSRep opens Steam sign-in in one);
+    /// hidden lookup windows never open anything.
+    fn builder(&self, label: &str, url: url::Url, sign_in_popups: bool) -> WebviewWindowBuilder<'_, tauri::Wry, AppHandle> {
         WebviewWindowBuilder::new(&self.app, label, WebviewUrl::External(url))
             .data_directory(self.data_dir.clone())
             .additional_browser_args(&browser_args())
             .initialization_script_for_all_frames(NO_LEAVE_PROMPT)
-            .on_new_window(|_, _| NewWindowResponse::Deny)
+            .on_new_window(move |url, _| if sign_in_popups && is_sign_in_popup(&url) { NewWindowResponse::Allow } else { NewWindowResponse::Deny })
     }
 
     /// Visible window for the user (profile pages, sign-in, verification). Shares the hidden windows' profile.
@@ -280,7 +292,7 @@ impl PageScraper {
             return Ok(());
         }
         let label = format!("{}-view", self.name);
-        let window = self.builder(&label, url).title(self.title).inner_size(1180.0, 860.0).build().map_err(|e| e.to_string())?;
+        let window = self.builder(&label, url, true).title(self.title).inner_size(1180.0, 860.0).build().map_err(|e| e.to_string())?;
         drop_on_top_when_left(&window);
         bring_forward(&window, over_game);
         *visible = Some(window);
@@ -350,7 +362,7 @@ impl PageScraper {
             return Ok(window);
         }
         let window = self
-            .builder(&format!("{}-scrape", self.name), url)
+            .builder(&format!("{}-scrape-{}", self.name, self.windows_made.fetch_add(1, Ordering::Relaxed)), url, false)
             .visible(false)
             .focused(false)
             .focusable(false)
@@ -511,6 +523,17 @@ pub fn open_profile_window(app: &AppHandle, data_dir: PathBuf, url: &str) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_sign_in_popups_open() {
+        let url = |u: &str| url::Url::parse(u).unwrap();
+        assert!(is_sign_in_popup(&url("https://csrep.gg/api/auth/steam")));
+        assert!(is_sign_in_popup(&url("https://steamcommunity.com/openid/login?openid.mode=checkid_setup")));
+        assert!(is_sign_in_popup(&url("https://www.csstats.gg/login")));
+        assert!(!is_sign_in_popup(&url("https://ads.example.com/csrep.gg")));
+        assert!(!is_sign_in_popup(&url("https://evilcsrep.gg/")), "a look-alike domain is not CSRep");
+        assert!(!is_sign_in_popup(&url("http://csrep.gg/api/auth/steam")), "https only");
+    }
 
     #[tokio::test]
     async fn aborted_lookup_still_schedules_idle_cleanup() {

@@ -98,10 +98,14 @@ struct Misc {
     csstats_signed_in: Option<(bool, i64)>,
     /// A check is set to run when the CSStats sign-in window closes.
     csstats_login_watched: bool,
+    /// The same for CSRep: its stats overview is shown to signed-in visitors only.
+    csrep_signed_in: Option<(bool, i64)>,
+    csrep_login_watched: bool,
     /// CS2's scoreboard is open (Tab held with CS2 in front).
     scoreboard_open: bool,
     scoreboard_scanning: bool,
     scoreboard_scanned_at: Option<std::time::Instant>,
+    scoreboard_saved_at: Option<std::time::Instant>,
 }
 
 #[derive(Default)]
@@ -814,7 +818,9 @@ impl Engine {
             let cache = self.cache.lock().unwrap();
             let now = now_ms();
             due.retain(|provider| {
-                let hit = cache.get(&(provider.to_string(), steam_id.to_string())).filter(|r| r.fetched_at.is_some_and(|at| now - at < cache_ms)).cloned();
+                // Steam profiles (avatar, account age, privacy) barely change, and Steam limits requests.
+                let keep = if *provider == "steam" { cache_ms.max(12 * 3_600_000) } else { cache_ms };
+                let hit = cache.get(&(provider.to_string(), steam_id.to_string())).filter(|r| r.fetched_at.is_some_and(|at| now - at < keep)).cloned();
                 match hit {
                     Some(result) => {
                         state.players.apply_cached(steam_id, provider, result);
@@ -855,6 +861,9 @@ impl Engine {
             let Ok((name, result)) = joined else { continue };
             if name == "csstats" {
                 self.note_csstats(&result, false);
+            }
+            if name == "csrep" {
+                self.note_csrep(&result, false);
             }
             if let Some(line) = noteworthy(name, &result) {
                 self.log(&format!("{name}-lookup"), line.split_once(": ").map(|(_, rest)| rest).unwrap_or(&line));
@@ -909,10 +918,59 @@ impl Engine {
         self.misc.lock().unwrap().csstats_signed_in = Some((signed_in, now_ms()));
     }
 
+    /// A CSRep page with stats means the sign-in works; without them it means "not signed in" only for your
+    /// own profile (a player can have no recent matches).
+    fn note_csrep(&self, result: &crate::model::ProviderResult, own: bool) {
+        let Some(stats) = crate::providers::csrep::shows_signed_in_stats(result) else { return };
+        if stats || own {
+            self.misc.lock().unwrap().csrep_signed_in = Some((stats, now_ms()));
+        }
+    }
+
+    /// Opens csrep.gg to sign in; when the window closes, your own profile is looked up to check the sign-in.
+    pub fn csrep_login(self: &Arc<Self>) -> Result<(), String> {
+        self.providers.csrep.open_login()?;
+        let Some(window) = self.app.get_webview_window("csrep-view") else { return Ok(()) };
+        {
+            let mut misc = self.misc.lock().unwrap();
+            if misc.csrep_login_watched {
+                return Ok(());
+            }
+            misc.csrep_login_watched = true;
+        }
+        let engine = self.clone();
+        window.on_window_event(move |event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                engine.misc.lock().unwrap().csrep_login_watched = false;
+                let engine = engine.clone();
+                tauri::async_runtime::spawn(async move { engine.check_csrep().await });
+            }
+        });
+        Ok(())
+    }
+
+    pub async fn check_csrep(self: &Arc<Self>) {
+        let id = self.own_steam_id();
+        let s = self.settings();
+        // With an API key, or with page reading off, the sign-in isn't used.
+        if id.is_empty() || !s.csrep_api_key.is_empty() || !s.csrep_pages_enabled {
+            return;
+        }
+        let result = self.providers.csrep.player(&id, "").await;
+        self.note_csrep(&result, true);
+        self.changed();
+    }
+
     /// Your recorded matches (this account's, or every account's before CS2 has reported one), newest first.
     pub fn history_matches(&self, limit: usize, offset: usize) -> Value {
         let self_id = self.own_steam_id();
         self.state.lock().unwrap().history.matches(&self_id, limit.clamp(1, 200), offset)
+    }
+
+    /// Your own results and stats per map, from the recorded matches.
+    pub fn history_performance(&self) -> Value {
+        let self_id = self.own_steam_id();
+        self.state.lock().unwrap().history.own_performance(&self_id)
     }
 
     pub fn history_match(&self, id: i64) -> Option<Value> {
@@ -1096,7 +1154,14 @@ impl Engine {
         let teams = self.state.lock().unwrap().mode(&self.gsi_summary()).teams;
         let wanted = {
             let state = self.state.lock().unwrap();
-            state.active() && (state.players.wants_colours() || (teams && state.players.wants_sides()))
+            // Players are recognised by their Steam avatars; with fewer than two known there is nothing to find.
+            let avatars = state
+                .players
+                .ids()
+                .iter()
+                .filter(|id| state.players.get(id).and_then(|p| p.provider("steam")?.text("avatar")).is_some_and(|a| !a.is_empty()))
+                .count();
+            state.active() && avatars >= 2 && (state.players.wants_colours() || (teams && state.players.wants_sides()))
         };
         {
             let mut misc = self.misc.lock().unwrap();
@@ -1186,14 +1251,22 @@ impl Engine {
                 Level::Info,
                 "scoreboard-colours",
                 &format!(
-                    "Scoreboard read: {} of {looked_for} avatars found, {} teammate colours, {} players placed in teams.",
+                    "Scoreboard read: {} of {looked_for} avatars found, {} player colours, {} players placed in teams.",
                     found.len(),
                     coloured.len(),
                     sides.len()
                 ),
             );
-            if coloured.is_empty() && sides.is_empty() {
-                // Kept for checking what the app saw; overwritten each time, never sent anywhere.
+            let save = coloured.is_empty() && sides.is_empty() && {
+                let mut misc = self.misc.lock().unwrap();
+                let due = misc.scoreboard_saved_at.is_none_or(|at| at.elapsed() > Duration::from_secs(30 * 60));
+                if due {
+                    misc.scoreboard_saved_at = Some(std::time::Instant::now());
+                }
+                due
+            };
+            if save {
+                // Kept for checking what the app saw (at most every 30 minutes), never sent anywhere.
                 let file = self.diagnostics.file.with_file_name("scoreboard-last.png");
                 if frame.save_png(&file).is_ok() {
                     self.diagnostics.log(Level::Info, "scoreboard-colours", &format!("No colours found; the captured scoreboard is in {}", file.display()));
@@ -1493,6 +1566,10 @@ impl Engine {
                 "csrep": if !s.csrep_api_key.is_empty() { "API key" } else if s.csrep_pages_enabled { "public profile pages" } else { "off" },
                 "csstats": if s.csstats_enabled { "on (verify with a lookup)" } else { "off" },
                 "csstatsSignIn": match misc.csstats_signed_in {
+                    Some((signed_in, at)) => json!({ "signedIn": signed_in, "checkedAt": at }),
+                    None => Value::Null,
+                },
+                "csrepSignIn": match misc.csrep_signed_in {
                     Some((signed_in, at)) => json!({ "signedIn": signed_in, "checkedAt": at }),
                     None => Value::Null,
                 },

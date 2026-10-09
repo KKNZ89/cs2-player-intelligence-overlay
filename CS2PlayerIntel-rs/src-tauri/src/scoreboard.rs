@@ -572,6 +572,44 @@ mod tests {
         assert_eq!(found.len(), 10);
     }
 
+    /// A real capture, kept out of the repository: CS2INTEL_BOARD=<png> CS2INTEL_AVATARS=<folder of
+    /// <steamid>.jpg> CS2INTEL_SELF=<steamid> cargo test --release -- --ignored --nocapture real_capture
+    #[test]
+    #[ignore]
+    fn real_capture() {
+        let (Ok(board), Ok(folder), Ok(me)) = (std::env::var("CS2INTEL_BOARD"), std::env::var("CS2INTEL_AVATARS"), std::env::var("CS2INTEL_SELF")) else {
+            return;
+        };
+        let decoder = png::Decoder::new(std::io::BufReader::new(std::fs::File::open(board).unwrap()));
+        let mut reader = decoder.read_info().unwrap();
+        let mut buf = vec![0; reader.output_buffer_size().unwrap()];
+        let info = reader.next_frame(&mut buf).unwrap();
+        let channels = info.color_type.samples();
+        let bgra: Vec<u8> = buf[..info.buffer_size()].chunks_exact(channels).flat_map(|p| [p[2], p[1], p[0], 255]).collect();
+        let frame = Frame { width: info.width, height: info.height, bgra };
+        let avatars: Vec<Avatar> = std::fs::read_dir(folder)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().is_some_and(|x| x == "jpg"))
+            .map(|e| {
+                let bytes = std::fs::read(e.path()).unwrap();
+                let mut d = zune_jpeg::JpegDecoder::new(&bytes);
+                let rgb = d.decode().unwrap();
+                let (width, height) = d.dimensions().unwrap();
+                Avatar { steam_id: e.path().file_stem().unwrap().to_string_lossy().into(), width, height, rgb }
+            })
+            .collect();
+        let started = std::time::Instant::now();
+        let found = read(&frame, &avatars);
+        eprintln!("{}x{}: {} of {} found in {:?}", frame.width, frame.height, found.len(), avatars.len(), started.elapsed());
+        for f in &found {
+            eprintln!("  {} at ({}, {}) size {} score {:.3} colour {:?}", f.steam_id, f.x, f.y, f.size, f.score, f.colour);
+        }
+        for (id, side) in sides(&found, &me) {
+            eprintln!("  side {id}: {side}");
+        }
+    }
+
     #[test]
     fn identical_avatars_and_empty_frames_give_nothing() {
         let mut canvas = Canvas::new(1280, 720);

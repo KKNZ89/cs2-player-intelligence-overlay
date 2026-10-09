@@ -14,7 +14,9 @@ const GAP: Duration = Duration::from_millis(1000);
 /// Steam's community pages rate-limit bursts; one wait and retry usually gets through.
 const RATE_LIMIT_WAIT: Duration = Duration::from_secs(15);
 /// When Steam still refuses after waiting, lookups stop for a while instead of keeping the limit active.
+/// The pause doubles each time Steam is still limiting afterwards, up to an hour.
 const RATE_LIMIT_PAUSE_MS: i64 = 10 * 60_000;
+const RATE_LIMIT_PAUSE_MAX_MS: i64 = 60 * 60_000;
 
 fn xml_value(xml: &str, tag: &str) -> Option<String> {
     let pattern = Regex::new(&format!(r"<{tag}>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?</{tag}>")).ok()?;
@@ -27,6 +29,28 @@ fn member_since_ms(text: &str) -> Option<i64> {
         .or_else(|_| NaiveDate::parse_from_str(&format!("{text}, {}", chrono::Utc::now().year()), "%B %d, %Y"))
         .ok()?;
     Some(date.and_hms_opt(0, 0, 0)?.and_utc().timestamp_millis())
+}
+
+/// How long Steam lookups pause after the `previous`-th pause in a row: 10, 20, 40, then 60 minutes.
+fn pause_after(previous: u32) -> i64 {
+    (RATE_LIMIT_PAUSE_MS << previous.min(3)).min(RATE_LIMIT_PAUSE_MAX_MS)
+}
+
+/// A GetPlayerSummaries answer, with the same fields as the profile XML (bans come from GetPlayerBans).
+pub fn parse_player_summary(json: &Value) -> Option<Map<String, Value>> {
+    let player = json["response"]["players"].get(0)?;
+    let public = player["communityvisibilitystate"].as_i64() == Some(3);
+    let fields = json!({
+        "name": player["personaname"].as_str().unwrap_or_default(),
+        "avatar": player["avatarmedium"].as_str().unwrap_or_default(),
+        "privacy": if public { "public" } else { "private" },
+        "vacBanned": Value::Null,
+        "tradeBanState": Value::Null,
+        "limitedAccount": false,
+        "createdAt": player["timecreated"].as_i64().map(|seconds| seconds * 1000),
+        "memberSince": Value::Null,
+    });
+    fields.as_object().cloned()
 }
 
 pub fn parse_profile_xml(xml: &str) -> Option<Map<String, Value>> {
@@ -48,31 +72,56 @@ pub fn parse_profile_xml(xml: &str) -> Option<Map<String, Value>> {
     fields.as_object().cloned()
 }
 
+/// A rate-limit pause for one of Steam's services.
+#[derive(Default)]
+struct Pause {
+    until: std::sync::atomic::AtomicI64,
+    /// Pauses in a row without a successful request in between.
+    count: std::sync::atomic::AtomicU32,
+}
+
 pub struct SteamProfileProvider {
     http: reqwest::Client,
     queue: tokio::sync::Mutex<()>,
-    paused_until: std::sync::atomic::AtomicI64,
+    /// The community pages (profile XML) and the Web API are limited separately, so a limit on the pages
+    /// never holds up lookups made with an API key.
+    community: Pause,
+    api: Pause,
+}
+
+/// Whether a request goes to the Web API rather than the community pages.
+fn is_api(url: &str) -> bool {
+    url.starts_with("https://api.steampowered.com/")
 }
 
 impl SteamProfileProvider {
     pub fn new(http: reqwest::Client) -> Self {
-        Self { http, queue: tokio::sync::Mutex::new(()), paused_until: std::sync::atomic::AtomicI64::new(0) }
+        Self { http, queue: tokio::sync::Mutex::new(()), community: Pause::default(), api: Pause::default() }
     }
 
     /// Requests are serialized and spaced so a full lobby does not trip Steam's rate limit.
     async fn get(&self, url: &str) -> Result<String, Failure> {
         let _turn = self.queue.lock().await;
         use std::sync::atomic::Ordering;
-        if crate::model::now_ms() < self.paused_until.load(Ordering::Relaxed) {
-            return Err(Failure::with("rate-limited", "Steam is limiting profile requests; they resume within 10 minutes."));
+        let pause = if is_api(url) { &self.api } else { &self.community };
+        let paused_until = pause.until.load(Ordering::Relaxed);
+        if crate::model::now_ms() < paused_until {
+            // Answered without a request, and not logged again: the pause was reported when it began.
+            let minutes = ((paused_until - crate::model::now_ms()) / 60_000).max(1);
+            return Err(Failure::with("paused", format!("Steam is limiting profile requests; trying again in about {minutes} min.")));
         }
         let mut result = self.fetch(url).await;
         if result.as_ref().is_err_and(|failure| failure.status == "rate-limited") {
             tokio::time::sleep(RATE_LIMIT_WAIT).await;
             result = self.fetch(url).await;
             if result.as_ref().is_err_and(|failure| failure.status == "rate-limited") {
-                self.paused_until.store(crate::model::now_ms() + RATE_LIMIT_PAUSE_MS, Ordering::Relaxed);
+                let wait = pause_after(pause.count.fetch_add(1, Ordering::Relaxed));
+                pause.until.store(crate::model::now_ms() + wait, Ordering::Relaxed);
+                result = Err(Failure::with("rate-limited", format!("Steam is limiting profile requests; Steam lookups pause for {} min.", wait / 60_000)));
             }
+        }
+        if result.is_ok() {
+            pause.count.store(0, Ordering::Relaxed);
         }
         tokio::time::sleep(GAP).await;
         result
@@ -89,11 +138,13 @@ impl SteamProfileProvider {
 
     pub async fn player(&self, steam_id: &str, api_key: &str) -> ProviderResult {
         let profile_url = format!("https://steamcommunity.com/profiles/{steam_id}");
-        let xml = match self.get(&format!("{profile_url}/?xml=1")).await {
-            Ok(xml) => xml,
+        // With a Web API key the profile comes from Steam's API, which allows far more requests than the
+        // community pages; without one, from the public profile XML.
+        let profile = if api_key.is_empty() { self.profile_xml(&profile_url).await } else { self.profile_api(steam_id, api_key).await };
+        let mut data = match profile {
+            Ok(data) => data,
             Err(failure) => return failure.into_result(Some(profile_url)),
         };
-        let Some(mut data) = parse_profile_xml(&xml) else { return Failure::new("not-found").into_result(Some(profile_url)) };
         for key in ["hoursCs2", "gameBans", "vacBans", "daysSinceLastBan"] {
             data.insert(key.into(), Value::Null);
         }
@@ -103,6 +154,18 @@ impl SteamProfileProvider {
             self.add_api_data(&mut data, steam_id, api_key).await;
         }
         ProviderResult::ok(data)
+    }
+
+    async fn profile_xml(&self, profile_url: &str) -> Result<Map<String, Value>, Failure> {
+        let xml = self.get(&format!("{profile_url}/?xml=1")).await?;
+        parse_profile_xml(&xml).ok_or_else(|| Failure::new("not-found"))
+    }
+
+    async fn profile_api(&self, steam_id: &str, key: &str) -> Result<Map<String, Value>, Failure> {
+        let key = percent_encoding::utf8_percent_encode(key, percent_encoding::NON_ALPHANUMERIC).to_string();
+        let text = self.get(&format!("https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/?key={key}&steamids={steam_id}")).await?;
+        let json: Value = serde_json::from_str(&text).map_err(|e| Failure::with("error", format!("Steam API: {e}")))?;
+        parse_player_summary(&json).ok_or_else(|| Failure::new("not-found"))
     }
 
     async fn add_api_data(&self, data: &mut Map<String, Value>, steam_id: &str, key: &str) {
@@ -150,5 +213,18 @@ mod tests {
         assert!(parse_profile_xml("<response><error>nope</error></response>").is_none());
         let private = parse_profile_xml("<profile><steamID>x</steamID></profile>").unwrap();
         assert_eq!(private["vacBanned"], Value::Null, "unknown is not 'not banned'");
+    }
+
+    #[test]
+    fn pauses_grow_and_api_profiles_match_the_xml_fields() {
+        assert_eq!([0, 1, 2, 3, 9].map(pause_after), [10, 20, 40, 60, 60].map(|m: i64| m * 60_000));
+        assert!(is_api("https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/?key=k&steamids=1"));
+        assert!(!is_api("https://steamcommunity.com/profiles/1/?xml=1"), "the community pages are paused separately");
+        let json = json!({ "response": { "players": [{ "personaname": "Pechkin", "avatarmedium": "https://avatars.steamstatic.com/a_medium.jpg", "communityvisibilitystate": 3, "timecreated": 1_500_000_000 }] } });
+        let profile = parse_player_summary(&json).unwrap();
+        assert_eq!((profile["name"].as_str(), profile["privacy"].as_str()), (Some("Pechkin"), Some("public")));
+        assert_eq!(profile["avatar"], "https://avatars.steamstatic.com/a_medium.jpg");
+        assert_eq!(profile["createdAt"], 1_500_000_000_000i64);
+        assert!(parse_player_summary(&json!({ "response": { "players": [] } })).is_none(), "unknown account");
     }
 }

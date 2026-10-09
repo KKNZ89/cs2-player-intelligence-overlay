@@ -404,3 +404,5 @@ th.sorted.asc::after { content: ' ↑'; }
 
 .sources-notice { margin-bottom: 16px; }
 .sources-notice .button-row { margin-top: 2px; }
+
+.history-performance { margin-bottom: 16px; }

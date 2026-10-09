@@ -460,7 +460,7 @@ function statusChips(state) {
     chip('Game state', g.error ? 'Problem' : g.connected ? 'Connected' : 'Waiting for CS2', g.error ? 'bad' : g.connected ? 'ok' : 'off', g.error || g.notice || ''),
     chip('Steam', steam.label || 'Waiting for CS2', steamLevel(steam), steam.detail || ''),
     chip('Shortcut', setup.hotkey || 'F8', setup.shortcutReady ? 'ok' : 'warn', setup.shortcutReady ? 'Registered' : 'Not registered: another app may use it'),
-    chip('CSRep', s.hasCsrepApiKey ? 'API key' : s.csrepPagesEnabled ? 'Public pages' : 'Off', s.hasCsrepApiKey || s.csrepPagesEnabled ? 'ok' : 'off', 'Settings → Data sources'),
+    chip('CSRep', s.hasCsrepApiKey ? 'API key' : !s.csrepPagesEnabled ? 'Off' : setup.csrepSignIn?.signedIn ? 'Signed in' : 'Public pages', s.hasCsrepApiKey || s.csrepPagesEnabled ? 'ok' : 'off', 'Settings → Data sources'),
     chip('CSStats', !s.csstatsEnabled ? 'Off' : !setup.csstatsSignIn ? 'On' : setup.csstatsSignIn.signedIn ? 'Signed in' : 'Not signed in', !s.csstatsEnabled ? 'off' : setup.csstatsSignIn?.signedIn === false ? 'warn' : 'ok', 'Settings → Data sources')
   ].join('');
 }
@@ -480,6 +480,16 @@ function renderSourceStatus(state) {
   else if (signIn.signedIn) status = badge('ok', 'Signed in', `checked ${ago(signIn.checkedAt)}`);
   else status = badge('warn', 'Not signed in', `pages had no stats ${ago(signIn.checkedAt)}`);
   setHtml(els.csstatsStatus, status);
+  const csrep = state.setup?.csrepSignIn;
+  let csrepStatus;
+  if (s.hasCsrepApiKey) csrepStatus = badge('ok', 'Not needed', 'the API key is used');
+  else if (!s.csrepPagesEnabled) csrepStatus = badge('off', 'Page reading off');
+  else if (!csrep) csrepStatus = badge('off', 'Not checked yet', 'shown after the first lookup');
+  else if (csrep.signedIn) csrepStatus = badge('ok', 'Signed in', `checked ${ago(csrep.checkedAt)}`);
+  else csrepStatus = badge('warn', 'Not signed in', `your page had no stats ${ago(csrep.checkedAt)}`);
+  setHtml(els.csrepStatus, csrepStatus);
+  const csrepLabel = csrep?.signedIn ? 'Open CSRep' : 'Sign in to CSRep';
+  if (els.csrepLoginBtn.lastChild?.textContent !== csrepLabel) els.csrepLoginBtn.lastChild.textContent = csrepLabel;
   const label = signIn?.signedIn ? 'Open CSStats' : 'Sign in to CSStats';
   if (els.csstatsLoginBtn.lastChild?.textContent !== label) els.csstatsLoginBtn.lastChild.textContent = label;
 }
@@ -795,6 +805,7 @@ function bind() {
   }
   els.installGsiBtn.addEventListener('click', () => busy(els.installGsiBtn, async () => toast(`GSI config installed: ${(await api.installGsi()).file}. Restart CS2 if it is already running.`)));
   els.csstatsLoginBtn.addEventListener('click', () => busy(els.csstatsLoginBtn, () => api.openCsStatsLogin()));
+  els.csrepLoginBtn.addEventListener('click', () => busy(els.csrepLoginBtn, () => api.openCsRepLogin()));
   els.checkUpdatesBtn.addEventListener('click', () => busy(els.checkUpdatesBtn, async () => toast(updateText(await api.checkForUpdates()))));
   els.installUpdateBtn.addEventListener('click', () => busy(els.installUpdateBtn, () => api.installUpdate()));
 }

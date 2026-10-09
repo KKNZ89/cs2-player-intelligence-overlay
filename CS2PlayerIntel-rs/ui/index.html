@@ -142,7 +142,7 @@
                 <header class="panel-head"><h2>Overlay</h2><span class="muted small">Pin the overlay to see changes live</span></header>
                 <label class="switch"><input id="holdTab" type="checkbox"><span class="track"></span><span class="switch-text"><b>Hold Tab in CS2</b><small>Compact view while held; Ctrl+Tab for the expanded view</small></span></label>
                 <label class="switch"><input id="escInteractive" type="checkbox"><span class="track"></span><span class="switch-text"><b>Clickable overlay in the Esc menu</b><small>Press Esc in a match to click players, expand their details and refresh them</small></span></label>
-                <label class="switch"><input id="scoreboardColours" type="checkbox"><span class="track"></span><span class="switch-text"><b>Read CS2's scoreboard (teams and colours)</b><small>Off by default. While you hold Tab in a match, the app takes one picture of the CS2 window (not your screen), puts every player it finds in your team or the other, and reads each teammate's colour, shown as a ring around the avatar. It uses Windows screen capture, as OBS does, and never reads game memory. Some anti-cheats dislike capture of the game window, so turn this on at your own risk.</small></span></label>
+                <label class="switch"><input id="scoreboardColours" type="checkbox"><span class="track"></span><span class="switch-text"><b>Read CS2's scoreboard (teams and colours)</b><small>Off by default. While you hold Tab in a match, the app takes one picture of the CS2 window (not your screen), puts every player it finds in your team or the other, and reads each player's colour, shown as a ring around the avatar. It uses Windows screen capture, as OBS does, and never reads game memory. Some anti-cheats dislike capture of the game window, so turn this on at your own risk.</small></span></label>
                 <div class="field">
                   <span class="field-label">Compact layout</span>
                   <div class="segmented-input" role="radiogroup">
@@ -209,6 +209,11 @@
                   <small>With a key, CSRep's API is used. <button id="removeKeyBtn" class="link" type="button">Remove saved key</button></small>
                 </label>
                 <label class="switch"><input id="csrepPagesEnabled" type="checkbox"><span class="track"></span><span class="switch-text"><b>Read CSRep public pages</b><small>Off by default. Without an API key, the Trust Score, verdict and breakdown are read from CSRep's public profile pages in a hidden browser window. Check CSRep's terms before turning this on.</small></span></label>
+                <div class="field">
+                  <span class="field-label">CSRep sign-in <em>optional</em> <span id="csrepStatus" class="key-status"></span></span>
+                  <div class="button-row"><button id="csrepLoginBtn" class="btn" data-icon="external">Sign in to CSRep</button></div>
+                  <small>Signed out, CSRep's pages show only the Trust Score and verdict. Signed in, they also show its stats overview: K/D, ADR, HLTV rating, KAST and time to damage. You sign in through Steam on csrep.gg itself; the app never sees a password. Not needed with a CSRep API key.</small>
+                </div>
                 <label class="switch"><input id="csstatsEnabled" type="checkbox"><span class="track"></span><span class="switch-text"><b>Read CSStats pages</b><small>Off by default. Reads csstats.gg profile pages in a hidden browser window, using your CSStats sign-in. Check csstats.gg's terms before turning this on.</small></span></label>
                 <div class="field">
                   <span class="field-label">CSStats sign-in <span id="csstatsStatus" class="key-status"></span></span>
@@ -306,6 +311,11 @@
 
       <!-- History -->
       <section class="view" id="view-history" hidden>
+        <article id="historyPerformance" class="panel history-performance" hidden>
+          <header class="panel-head"><h2>Your performance by map</h2><span class="muted small">From your own scoreboard line in each recorded match</span></header>
+          <div class="table-wrap"><table class="table"><thead><tr><th>Map</th><th class="num">Matches</th><th class="num">W–L–T</th><th class="num">Win %</th><th class="num">K/D</th><th class="num">Kills / match</th><th class="num">MVPs / match</th><th>K/D trend</th></tr></thead><tbody id="historyPerformanceRows"></tbody></table></div>
+          <p class="muted small">Recorded from CS2 when each match ends (kills, deaths, assists, MVPs), oldest to newest in the trend. Matches recorded before this was added count for results only.</p>
+        </article>
         <div class="history-layout">
           <article class="panel">
             <header class="panel-head"><h2>Recorded matches</h2><span id="historyCount" class="muted small"></span></header>
@@ -361,7 +371,7 @@
             <dt><kbd>F8</kbd></dt><dd>Keeps the overlay on screen until you press it again.</dd>
             <dt><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>O</kbd></dt><dd>Opens this window from anywhere.</dd>
           </dl>
-          <p>Teams and colours: turn on <b>Read CS2's scoreboard</b> in Settings → Overlay. Hold Tab for a moment in a match and the app puts everyone in your team or the other one (marked "Scoreboard"), and shows each teammate's CS2 colour as the ring around their avatar. Your own Team/Enemy choice always wins. It's off by default because it captures the CS2 window.</p>
+          <p>Teams and colours: turn on <b>Read CS2's scoreboard</b> in Settings → Overlay. Hold Tab for a moment in a match and the app puts everyone in your team or the other one (marked "Scoreboard"), and shows each player's CS2 colour as the ring around their avatar. Your own Team/Enemy choice always wins. It's off by default because it captures the CS2 window.</p>
           <p>F8 and the clickable-overlay key can be changed in Settings → Hotkeys. Use your configured clickable-overlay key for mouse navigation: the overlay temporarily takes focus so you can click player cards and profile links, even if CS2 keeps its own cursor captured. Press Esc or the shortcut again to exit, then click back into CS2. Switching to another window also ends mouse navigation. The automatic Esc-menu view and Tab views do not take focus.</p>
           <p><b>Not assigned</b> means the player's team is not known, not that the player is missing. Steam's recent-player list does not identify teams. Choose Teammate/Opponent on the Match page, or Team/Enemy in an Esc-menu player card. Players you spectate on your own side in Competitive, Premier or Wingman can be confirmed automatically; party-based and inferred assignments are labelled and can be corrected manually.</p>
         </article>
@@ -372,7 +382,7 @@
             <li><b>Leetify</b>: aim, positioning, utility, rating and recent matches. Works without an account.</li>
             <li><b>FACEIT</b>: level and Elo. Add your own free FACEIT key for match stats and profile links.</li>
             <li><b>CSStats</b>: K/D, ADR, HLTV rating. Off until you turn it on in Settings → Data sources, and needs you to sign in on csstats.gg once.</li>
-            <li><b>CSRep</b>: trust score and verdict. Add a CSRep API key, or allow reading its public pages in Settings → Data sources.</li>
+            <li><b>CSRep</b>: trust score and verdict. Add a CSRep API key, or allow reading its public pages in Settings → Data sources. Sign in to CSRep there as well and you also get its K/D, ADR and rating.</li>
             <li><b>Steam</b>: hours in CS2 and bans. Needs a Steam Web API key.</li>
           </ul>
           <p>A value shows N/A when the source didn't have it. Hover over it to see why. Private profiles and new accounts are the usual reasons. The Diagnostics page lists every lookup per player.</p>
@@ -388,14 +398,14 @@
 
         <article class="panel">
           <header class="panel-head"><h2>Match history and notes</h2></header>
-          <p>Every match you finish is saved on this PC: who you played, with or against, and their stats at the time. The <b>History</b> page lists your matches; open one to see its players. Open a player on the Match page to see your past games together. Leetify data is never saved.</p>
+          <p>Every match you finish is saved on this PC: who you played, with or against, and their stats at the time. The <b>History</b> page lists your matches; open one to see its players. Above the list, <b>Your performance by map</b> sums your own kills, deaths, assists and MVPs from each recorded match, with a K/D trend per map. A player's details → Matches also groups their recent Leetify matches by map (shown live, not saved). Open a player on the Match page to see your past games together. Leetify data is never saved.</p>
           <p><b>Notes:</b> add notes about a player in their details (Notes tab), in the overlay's player card (press Shift+F8 first so you can type), or on the History page. Each note keeps the date, time, match, and whether they were with or against you. When you meet that player again, their notes show in the overlay card and here, newest first. You can export, import or clear the history in Settings → Database.</p>
         </article>
 
         <article class="panel">
           <header class="panel-head"><h2>Privacy</h2></header>
           <p>The app sends no usage data anywhere. It only contacts the sources above to look up players, and GitHub to check for updates.</p>
-          <p>Everything it keeps stays on this PC, in <code>%APPDATA%\nz.local.cs2playerintel</code>: your settings, encrypted API keys, match history and notes, the log, and the browser sessions for CSStats and CSRep. With teammate colours on, the last scoreboard picture that showed no colours is kept there too, as <code>scoreboard-last.png</code>. Settings → Database deletes the history and notes. When you uninstall, tick "Delete the application data" to remove that folder too.</p>
+          <p>Everything it keeps stays on this PC, in <code>%APPDATA%\nz.local.cs2playerintel</code>: your settings, encrypted API keys, match history and notes, the log, and the browser sessions for CSStats and CSRep. With scoreboard reading on, the last scoreboard picture that showed nothing is kept there too, as <code>scoreboard-last.png</code>. Settings → Database deletes the history and notes. When you uninstall, tick "Delete the application data" to remove that folder too.</p>
         </article>
 
         <article class="panel">

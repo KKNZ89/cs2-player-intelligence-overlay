@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { colourClass, discovery, groups, issuesHtml, noteMeta, notesHtml, sourcesOff, lobbyCount, matchTitle, playerChips, providerIssues, rosterCounts, winChance } from '../ui/lib/format.js';
+import { colourClass, discovery, groups, issuesHtml, mapBreakdown, noteMeta, notesHtml, sourcesOff, sparkline, lobbyCount, matchTitle, playerChips, providerIssues, rosterCounts, winChance } from '../ui/lib/format.js';
 import { providerStatusText } from '../ui/lib/status.js';
 
 const players = count => Array.from({ length: count }, (_, i) => ({ steamId: String(76561198000000000n + BigInt(i)), name: `P${i}`, isSelf: i === 0, side: i === 0 ? 'team' : '' }));
@@ -135,4 +135,28 @@ test('switched-off sources are named for the notice', () => {
   assert.equal(sourcesOff({ csstatsEnabled: true }), 'CSRep');
   assert.equal(sourcesOff({ csstatsEnabled: true, hasCsrepApiKey: true }), '', 'a CSRep key counts as on');
   assert.equal(sourcesOff({ csstatsEnabled: true, csrepPagesEnabled: true }), '');
+});
+
+test('recent matches are grouped by map with a rating trend, oldest first', () => {
+  // Leetify lists newest first.
+  const recent = [
+    { map: 'de_mirage', outcome: 'win', leetifyRating: 0.06 },
+    { map: 'de_nuke', outcome: 'loss', leetifyRating: -0.02 },
+    { map: 'de_mirage', outcome: 'loss', leetifyRating: -0.04 },
+    { map: 'de_mirage', outcome: 'tie', leetifyRating: null }
+  ];
+  const [mirage, nuke] = mapBreakdown(recent);
+  assert.deepEqual([mirage.map, mirage.played, mirage.won, mirage.lost, mirage.tied], ['de_mirage', 3, 1, 1, 1]);
+  assert.deepEqual(mirage.ratings, [null, -0.04, 0.06], 'oldest to newest');
+  assert.equal(mirage.rating.toFixed(2), '0.01');
+  assert.equal(nuke.played, 1);
+  assert.deepEqual(mapBreakdown(undefined), []);
+});
+
+test('trend lines need two values and skip gaps', () => {
+  assert.equal(sparkline([1]), '');
+  assert.equal(sparkline([null, 2]), '');
+  const svg = sparkline([1, null, 3]);
+  assert.match(svg, /^<svg class="spark"/);
+  assert.equal((svg.match(/points="([^"]+)"/)[1].split(' ')).length, 2);
 });

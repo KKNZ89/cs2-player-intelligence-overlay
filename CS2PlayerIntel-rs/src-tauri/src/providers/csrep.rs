@@ -119,6 +119,15 @@ pub fn first_number(value: &Value, paths: &[&str]) -> Value {
 const DENY_COOKIES: &str = r#"(() => { const button = [...document.querySelectorAll("button, a")].find(x => (x.innerText || "").trim().toLowerCase() === "deny all"); if (!button) return false; button.click(); return true; })()"#;
 
 /// The performance stats (K/D, ADR, rating) have rendered.
+/// Whether a looked-up CSRep page showed its stats overview, which CSRep only shows to signed-in visitors.
+/// None for answers that say nothing about the sign-in (the API, failures).
+pub fn shows_signed_in_stats(result: &crate::model::ProviderResult) -> Option<bool> {
+    if !result.is_ok() || result.text("origin") != Some("public-page") {
+        return None;
+    }
+    Some(["kd", "adr", "hltv"].iter().any(|key| result.number(key).is_some()))
+}
+
 fn has_stats(text: &str) -> bool {
     let stats = parse_csrep_text(text);
     ["kd", "adr", "hltv"].iter().any(|key| !stats[*key].is_null())
@@ -148,6 +157,11 @@ pub struct CsRepProvider {
 impl CsRepProvider {
     pub fn new(http: reqwest::Client, scraper: PageScraper) -> Self {
         Self { http, scraper }
+    }
+
+    /// CSRep's home page in the visible window, to sign in through Steam on their site.
+    pub fn open_login(&self) -> Result<(), String> {
+        self.scraper.open("https://csrep.gg/", false)
     }
 
     pub fn open_profile(&self, steam_id: &str, over_game: bool) -> Result<(), String> {
@@ -262,5 +276,22 @@ mod tests {
         assert_eq!(first_number(&r, &["trust_rating", "trust.score"]), 88.0);
         assert_eq!(first_number(&r, &["adr", "stats.adr"]), 79.5);
         assert_eq!(first_number(&r, &["kd"]), Value::Null);
+    }
+
+    #[test]
+    fn stats_on_a_page_mean_signed_in() {
+        let page = |kd: Value| {
+            let mut data = Map::new();
+            data.insert("origin".into(), "public-page".into());
+            data.insert("trust".into(), json!(87));
+            data.insert("kd".into(), kd);
+            crate::model::ProviderResult::ok(data)
+        };
+        assert_eq!(shows_signed_in_stats(&page(json!(1.12))), Some(true));
+        assert_eq!(shows_signed_in_stats(&page(Value::Null)), Some(false));
+        let mut api = page(json!(1.12));
+        api.data.insert("origin".into(), "api".into());
+        assert_eq!(shows_signed_in_stats(&api), None, "the API needs no sign-in");
+        assert_eq!(shows_signed_in_stats(&crate::model::ProviderResult::status("verification-required")), None);
     }
 }

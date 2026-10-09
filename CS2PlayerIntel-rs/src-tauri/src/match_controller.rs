@@ -233,7 +233,9 @@ impl MatchState {
             .collect();
         let result = match_result(g, &self.current.self_team);
         let started_at = Some(self.current.started_at).filter(|t| *t > 0);
-        self.history.record_match(started_at, &self.current.map, &self.current.mode, result, &self.current.self_id, players);
+        // Your own line from CS2 at the end of the match (kept from your last report while spectating).
+        let own = crate::match_history::OwnMatchStats { kills: g.kills, deaths: g.deaths, assists: g.assists, mvps: g.mvps, score: g.score };
+        self.history.record_match(started_at, &own, &self.current.map, &self.current.mode, result, &self.current.self_id, players);
     }
 
     /// Applies likely sides from party links; never touches sides that are certain.

@@ -42,8 +42,8 @@ First run:
 1. Settings → General → **Install GSI config**. The app finds CS2 (or asks for the `game\csgo\cfg` folder) and writes a config with a random token for this install. Restart CS2 once afterwards.
 2. Optional, in Settings → Data sources:
    - Turn on **Read CSStats pages** and **Sign in to CSStats** for CSStats stats. You sign in on csstats.gg itself; the app never sees your password.
-   - Turn on **Read CSRep public pages**, or add a CSRep API key, for CSRep's Trust Score.
-   - A **Steam Web API key** for CS2 hours and game bans.
+   - Turn on **Read CSRep public pages**, or add a CSRep API key, for CSRep's Trust Score. Optionally **Sign in to CSRep** (through Steam, on csrep.gg) for its stats overview too: K/D, ADR, HLTV rating, KAST and time to damage.
+   - A **Steam Web API key** for CS2 hours and game bans. With a key, profiles also come from Steam's API instead of the public profile pages, which Steam rate-limits quickly; without one, a rate-limited Steam pauses lookups for 10 minutes, then longer if it persists.
    - A **FACEIT API key** for FACEIT match stats and profile links.
 
    Keys are stored encrypted with Windows DPAPI. Settings shows whether each key is saved, with the first 12 hex digits of its SHA-256 hash so you can tell keys apart without showing them.
@@ -90,14 +90,17 @@ For reliable mouse navigation, press your configured clickable-overlay shortcut 
 
 Finished matches are saved in a local SQLite database: who you played with or against, the result, and values from Steam, CSRep, CSStats and FACEIT at the time. Export, import, retention and delete are in Settings → Database. Leetify data is never stored.
 
+**Your performance by map.** Each recorded match also keeps your own kills, deaths, assists, MVPs and score from CS2. The History page sums them per map: matches, W–L–T, win rate, K/D, kills and MVPs per match, and a K/D trend over your last 20 matches on that map. For any player (you included), details → Matches also groups their recent Leetify matches by map with a rating trend; that is computed live and not stored.
+
 **Notes on players.** Write as many notes about a player as you like: in their details on the Match page, in the overlay's player card (press Shift+F8 so the overlay takes keyboard input), or on the History page for a past match. Each note keeps the date and time, the map and mode, whether the player was with or against you, and the match it was written in (with its result once the match is recorded). When you meet the player again, their notes show in the overlay card and the dashboard, newest first; a pencil marks noted players.
 
-**Teams and teammate colours from the scoreboard (optional, off by default)**
+**Teams and player colours from the scoreboard (optional, off by default)**
 
-CS2's scoreboard shows who is in which team, and gives each teammate a colour (yellow, purple, green, blue, orange), but the game doesn't share either with other apps. With **Read CS2's scoreboard** on (Settings → Overlay), the app takes one picture of the CS2 window while you hold Tab in a match and finds each player's Steam avatar on the scoreboard.
+CS2's scoreboard shows who is in which team, and frames every player's avatar in a colour (yellow, purple, green, blue, orange; each team has its own set), but the game doesn't share either with other apps. With **Read CS2's scoreboard** on (Settings → Overlay), the app takes one picture of the CS2 window while you hold Tab in a match and finds each player's Steam avatar on the scoreboard.
 
 - **Teams:** the scoreboard shows the two teams as separate blocks. Players in your block become teammates and the others opponents, marked "Scoreboard". Your own Team/Enemy choice always wins, and spectating a player still confirms them as a teammate.
-- **Colours:** the colour CS2 draws in each avatar shows as the ring around that player's avatar in the overlay and dashboard.
+- **Colours:** the colour of each player's frame shows as the ring around their avatar in the overlay and dashboard. A player whose avatar picture contains their own frame colour gets no ring rather than a guess.
+- Players are recognised by their Steam avatars, which come from their Steam profiles. If Steam is limiting requests (see below), the scoreboard is read once avatars are available.
 
 - It captures only the CS2 window, through Windows Graphics Capture (the API screen recorders use). It never reads game memory, and the app's overlay is not part of the picture.
 - It works at any resolution or HUD scale: avatars are searched for, not looked up at fixed positions. The colour values come from CS2's own interface files.
@@ -119,7 +122,7 @@ Not provided, because no connected source publishes it: time to kill, AWP usage,
 | Leetify | Public CS API, no key; requests are spaced out and wait out rate limits | Premier, FACEIT level and Elo, Leetify Rating, Aim, Positioning, Utility, Time to Damage, Head Accuracy, Preaim, win rate, recent matches, played before |
 | FACEIT (optional key) | FACEIT Data API with your free key | Elo, level, matches, K/D, HS %, profile link |
 | CSStats (off by default) | Your own signed-in CSStats session, in a hidden window | K/D, ADR, HLTV rating, KAST, HS %, win rate, matches |
-| CSRep (off by default without a key) | The API with your key, or public profile pages in a hidden window if you allow it | Trust Score, verdict, breakdown, anomaly verdicts |
+| CSRep (off by default without a key) | The API with your key, or public profile pages in a hidden window if you allow it (optionally signed in) | Trust Score, verdict, breakdown, anomaly verdicts; signed in, also K/D, ADR, HLTV rating, KAST, time to damage |
 | Steam profile | Public community profile XML | Privacy setting, VAC flag, account age, avatar |
 | Steam Web API (optional key) | `GetOwnedGames`, `GetPlayerBans` | CS2 hours and game bans |
 | This app | Its own match history | Played before, for players without Leetify history |
@@ -142,7 +145,7 @@ You can also add players by SteamID, remove them, or paste a full list. CS2's `c
 - Everything it keeps stays on your PC in `%APPDATA%\nz.local.cs2playerintel`: settings, DPAPI-encrypted API keys, the match history database (other players' SteamIDs, names and stats you met, plus your notes), the diagnostics log, and the browser profiles for CSStats and CSRep.
 - Settings → Database exports, imports or deletes the history and notes, and can keep only the last N days. To remove everything when uninstalling, tick "Delete the application data".
 - Streaming privacy mode hides names, SteamIDs and avatars on screen.
-- With teammate colours on, scoreboard pictures are processed in memory. Only when a read finds no colours, the last picture is kept as `scoreboard-last.png` in the data folder (overwritten each time, never sent anywhere) so you can see what the app saw. Steam avatars are downloaded from Steam's avatar servers to find players on it.
+- With scoreboard reading on, scoreboard pictures are processed in memory. Only when a read finds nothing, the last picture is kept (at most every 30 minutes) as `scoreboard-last.png` in the data folder (overwritten each time, never sent anywhere) so you can see what the app saw. Steam avatars are downloaded from Steam's avatar servers to find players on it.
 
 ## Security
 
@@ -162,7 +165,7 @@ All images below are fresh captures of the real UI using the fixture-backed brid
 
 | Player overview | Recent matches |
 |---|---|
-| ![Player details with profile metrics and assessment](docs/screenshots/dashboard-details.png) | ![Player match history and Premier rating chart](docs/screenshots/dashboard-details-matches.png) |
+| ![Player details with profile metrics and assessment](docs/screenshots/dashboard-details.png) | ![Player Premier rating chart, results by map and match history](docs/screenshots/dashboard-details-matches.png) |
 
 <details>
 <summary>Settings, local history, first-run setup, Help, and alternate themes</summary>
@@ -173,7 +176,7 @@ All images below are fresh captures of the real UI using the fixture-backed brid
 
 | Match history | Local player history |
 |---|---|
-| ![Recorded matches and the players of one match](docs/screenshots/dashboard-history.png) | ![Recorded encounters and provider measurements](docs/screenshots/dashboard-details-history.png) |
+| ![Your performance by map, recorded matches and the players of one match](docs/screenshots/dashboard-history.png) | ![Recorded encounters and provider measurements](docs/screenshots/dashboard-details-history.png) |
 
 | First-run setup | Light theme |
 |---|---|

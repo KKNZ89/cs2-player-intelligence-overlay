@@ -72,6 +72,13 @@ pub fn csstats_login(webview: Webview, engine: State<'_, Arc<Engine>>) -> Result
 }
 
 #[tauri::command(async)]
+pub fn csrep_login(webview: Webview, engine: State<'_, Arc<Engine>>) -> Result<bool> {
+    trusted(&webview)?;
+    engine.csrep_login()?;
+    Ok(true)
+}
+
+#[tauri::command(async)]
 pub fn profile_open(webview: Webview, engine: State<'_, Arc<Engine>>, provider: String, steam_id: String) -> Result<bool> {
     trusted(&webview)?;
     let id = numeric_steam_id(&steam_id);
@@ -258,6 +265,12 @@ pub fn note_delete(webview: Webview, engine: State<'_, Arc<Engine>>, id: i64) ->
 pub fn history_matches(webview: Webview, engine: State<'_, Arc<Engine>>, limit: usize, offset: usize) -> Result<Value> {
     trusted(&webview)?;
     Ok(engine.history_matches(limit, offset))
+}
+
+#[tauri::command(async)]
+pub fn history_performance(webview: Webview, engine: State<'_, Arc<Engine>>) -> Result<Value> {
+    trusted(&webview)?;
+    Ok(engine.history_performance())
 }
 
 #[tauri::command(async)]

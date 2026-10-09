@@ -2,7 +2,7 @@
 import { byId, esc, setHidden, setHtml, setText } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { api } from '../lib/bridge.js';
-import { displayName, matchTitle, notesHtml } from '../lib/format.js';
+import { displayName, matchTitle, notesHtml, sparkline } from '../lib/format.js';
 
 const PAGE = 50;
 const OUTCOME = { win: ['W', 'Win'], loss: ['L', 'Loss'], tie: ['T', 'Tie'] };
@@ -102,10 +102,25 @@ async function saveNote(button) {
   }
 }
 
+function renderPerformance(perf) {
+  const maps = (perf?.maps || []).filter(m => m.played);
+  setHidden(byId('historyPerformance'), !maps.length);
+  const name = map => matchTitle({ connected: true, map, mode: '' });
+  setHtml(byId('historyPerformanceRows'), maps.map(m => {
+    const decided = m.won + m.lost + m.tied;
+    const kd = m.withStats ? (m.kills / Math.max(m.deaths, 1)).toFixed(2) : '—';
+    const per = total => (m.withStats ? (total / m.withStats).toFixed(1) : '—');
+    const trend = sparkline((m.matches || []).slice(-20).map(x => (Number.isFinite(x.kills) && Number.isFinite(x.deaths) ? x.kills / Math.max(x.deaths, 1) : null)));
+    return `<tr><td>${esc(name(m.map))}</td><td class="num">${m.played}</td><td class="num">${m.won}–${m.lost}–${m.tied}</td><td class="num">${decided ? `${Math.round((m.won / decided) * 100)}%` : '—'}</td>
+      <td class="num">${kd}</td><td class="num">${per(m.kills)}</td><td class="num">${per(m.mvps)}</td><td>${trend}</td></tr>`;
+  }).join(''));
+}
+
 /** Loads the first page again (each time the page is shown, so new matches appear). */
 export async function loadHistory() {
   matches = [];
   try {
+    renderPerformance(await api.historyPerformance());
     await loadMore();
     if (openId !== null && !matches.some(m => m.id === openId)) {
       openId = null;

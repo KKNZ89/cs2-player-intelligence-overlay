@@ -24,6 +24,7 @@ export const api = {
   pickPath: kind => invoke('path_pick', { kind }),
   installGsi: () => invoke('gsi_install'),
   openCsStatsLogin: () => invoke('csstats_login'),
+  openCsRepLogin: () => invoke('csrep_login'),
   openProfile: (provider, steamId) => invoke('profile_open', { provider, steamId }),
   openLink: target => invoke('link_open', { target }),
   addSteamId: steamId => invoke('player_add', { steamId }),
@@ -48,6 +49,7 @@ export const api = {
   clearHistory: notes => invoke('history_clear', { notes }),
   historyMatches: (limit, offset) => invoke('history_matches', { limit, offset }),
   historyMatch: id => invoke('history_match', { id }),
+  historyPerformance: () => invoke('history_performance'),
   importHistory: () => invoke('history_import'),
   openDiagnosticsFolder: () => invoke('diagnostics_open')
 };
