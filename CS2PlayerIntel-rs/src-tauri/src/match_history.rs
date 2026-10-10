@@ -805,10 +805,15 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut store = MatchHistoryStore::open(dir.path());
         let line = |k, d| OwnMatchStats { kills: Some(k), deaths: Some(d), assists: Some(2), mvps: Some(1), score: Some(30) };
-        store.record_match(None, &line(20, 10), "de_mirage", "premier", "win", ME, vec![player(A, "enemy")]);
-        store.record_match(None, &line(10, 20), "de_mirage", "premier", "loss", ME, vec![player(A, "enemy")]);
-        store.record_match(None, &OwnMatchStats::default(), "de_mirage", "premier", "win", ME, vec![player(A, "enemy")]);
-        store.record_match(None, &line(15, 15), "de_nuke", "premier", "tie", ME, vec![player(A, "team")]);
+        // Distinct end times: import treats matches ending in the same millisecond on one map as the same match.
+        let start = now_ms() - 3_600_000;
+        let mut add = |minute: i64, own: OwnMatchStats, map: &str, result: &str, side: &str| {
+            store.insert(None, &own, start + minute * 60_000, map, "premier", result, ME, &[player(A, side)]).unwrap();
+        };
+        add(0, line(20, 10), "de_mirage", "win", "enemy");
+        add(40, line(10, 20), "de_mirage", "loss", "enemy");
+        add(80, OwnMatchStats::default(), "de_mirage", "win", "enemy");
+        add(120, line(15, 15), "de_nuke", "tie", "team");
         let perf = store.own_performance(ME);
         let mirage = &perf["maps"][0];
         assert_eq!(mirage["map"], "de_mirage", "most played first");
