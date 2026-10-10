@@ -1,3 +1,4 @@
+import { ChildProcess, spawnSync } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 export const TIMEOUT_MS = 10_000;
@@ -137,6 +138,15 @@ export async function waitForBrowser(child, readPort, { timeoutMs = TIMEOUT_MS, 
   }
 }
 
+// On Windows, kill() ends only Edge's main process; its helper processes keep the output pipe open, so
+// 'close' waits until they notice, which can take long on a busy machine. Ending the process tree is immediate.
+function kill(child) {
+  if (process.platform === 'win32' && child instanceof ChildProcess) {
+    if (spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true }).status === 0) return true;
+  }
+  return child.kill();
+}
+
 export async function stopBrowser(child, timeoutMs = TIMEOUT_MS) {
   if (!child?.pid || child.exitCode !== null || child.signalCode !== null) return;
   await new Promise((resolve, reject) => {
@@ -152,7 +162,7 @@ export async function stopBrowser(child, timeoutMs = TIMEOUT_MS) {
     child.once('close', onClose);
     child.once('error', onError);
     try {
-      if (!child.kill()) finish(new Error('Could not stop Headless Edge'));
+      if (!kill(child)) finish(new Error('Could not stop Headless Edge'));
     } catch (error) { finish(error); }
   });
 }
