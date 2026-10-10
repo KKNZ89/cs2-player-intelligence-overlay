@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.4
+
+- With a Steam Web API key, profiles and bans for the whole lobby come from two Steam requests instead of two per player, so Steam's limits are reached far less often and avatars (used to read the scoreboard) arrive sooner. CS2 hours still take one request per player.
+- CSRep's security check can be completed once for everyone: when CSRep blocks lookups, the Match page shows a "Complete CSRep check" button. It opens one CSRep page; when you close it, every blocked player is looked up again.
+- Diagnostics → Copy last match copies the log since your last match started, with repeated lines folded and one lookup line per player, short enough to paste into a message or an issue.
+
 ## 1.0.3
 
 - Steam rate limits: when Steam keeps limiting profile requests, lookups pause for longer each time (10, 20, 40, then 60 minutes) instead of retrying every few minutes, and the log says so once. Steam profiles are reused for 12 hours.

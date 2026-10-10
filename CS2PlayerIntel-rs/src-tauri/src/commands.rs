@@ -72,6 +72,13 @@ pub fn csstats_login(webview: Webview, engine: State<'_, Arc<Engine>>) -> Result
 }
 
 #[tauri::command(async)]
+pub fn csrep_verify(webview: Webview, engine: State<'_, Arc<Engine>>) -> Result<bool> {
+    trusted(&webview)?;
+    engine.csrep_verify()?;
+    Ok(true)
+}
+
+#[tauri::command(async)]
 pub fn csrep_login(webview: Webview, engine: State<'_, Arc<Engine>>) -> Result<bool> {
     trusted(&webview)?;
     engine.csrep_login()?;
@@ -225,6 +232,12 @@ pub fn game_launch(webview: Webview, engine: State<'_, Arc<Engine>>) -> Result<S
 pub fn diagnostics_recent(webview: Webview, engine: State<'_, Arc<Engine>>) -> Result<Vec<String>> {
     trusted(&webview)?;
     Ok(engine.diagnostics.recent(80))
+}
+
+#[tauri::command(async)]
+pub fn diagnostics_report(webview: Webview, engine: State<'_, Arc<Engine>>) -> Result<String> {
+    trusted(&webview)?;
+    Ok(engine.diagnostics.last_match_report())
 }
 
 #[tauri::command(async)]

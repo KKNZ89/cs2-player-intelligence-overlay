@@ -339,7 +339,7 @@
             <dl id="diagStatus" class="status-list"></dl>
           </article>
           <article class="panel">
-            <header class="panel-head"><h2>Recent log</h2><button id="openLogBtn" class="btn ghost small" data-icon="log">Open folder</button></header>
+            <header class="panel-head"><h2>Recent log</h2><div class="button-row"><button id="copyReportBtn" class="btn ghost small" data-icon="copy" title="Copies the log since your last match started, with repeated lines folded, short enough to paste into a message">Copy last match</button><button id="openLogBtn" class="btn ghost small" data-icon="log">Open folder</button></div></header>
             <pre id="diagLog" class="log">Loading…</pre>
           </article>
         </div>
@@ -387,7 +387,7 @@
           </ul>
           <p>A value shows N/A when the source didn't have it. Hover over it to see why. Private profiles and new accounts are the usual reasons. The Diagnostics page lists every lookup per player.</p>
           <p>Your keys are stored encrypted on this PC. The app never asks for or stores a password. CSStats sign-in happens on their own site.</p>
-          <p>If a site asks for Cloudflare verification or cookie preferences, open its profile from a player card and complete the prompt yourself, then refresh the player. CSRep and CSStats windows share the browser sessions used for lookups. CSRep keeps its automatic "Deny all" choice for optional cookies when available; other consent prompts require your decision. The app never solves security challenges; sites may still restrict embedded browsers.</p>
+          <p>If CSRep asks for a security check, the Match page shows <b>Complete CSRep check</b>: complete the check in the window that opens, close it, and every blocked player is looked up again. If a site asks for Cloudflare verification or cookie preferences elsewhere, open its profile from a player card and complete the prompt yourself, then refresh the player. CSRep and CSStats windows share the browser sessions used for lookups. CSRep keeps its automatic "Deny all" choice for optional cookies when available; other consent prompts require your decision. The app never solves security challenges; sites may still restrict embedded browsers.</p>
         </article>
 
         <article class="panel">
@@ -416,7 +416,7 @@
             <li><b>Overlay doesn't show</b>: CS2 is probably in exclusive fullscreen. Switch to borderless.</li>
             <li><b>A source shows nothing</b>: open Diagnostics. CSStats and CSRep sometimes ask for a browser check; open the player's CSRep or CSStats page once and the lookups work again.</li>
           </ul>
-          <p>Still stuck? Open an issue on <a href="https://github.com/KKNZ89/cs2-player-intelligence-overlay/issues" data-link="issues">GitHub</a> and attach the log from Diagnostics → Open folder.</p>
+          <p>Still stuck? Open an issue on <a href="https://github.com/KKNZ89/cs2-player-intelligence-overlay/issues" data-link="issues">GitHub</a> and paste the log from Diagnostics → Copy last match (or attach the file from Open folder).</p>
         </article>
 
         <article class="panel">

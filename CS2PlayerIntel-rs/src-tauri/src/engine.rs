@@ -793,6 +793,7 @@ impl Engine {
             csstats_enabled: s.csstats_enabled,
             csrep_pages_enabled: s.csrep_pages_enabled,
             self_id: self.gsi_summary().self_steam_id,
+            lobby: self.state.lock().unwrap().players.ids(),
         }
     }
 
@@ -930,11 +931,37 @@ impl Engine {
     /// Opens csrep.gg to sign in; when the window closes, your own profile is looked up to check the sign-in.
     pub fn csrep_login(self: &Arc<Self>) -> Result<(), String> {
         self.providers.csrep.open_login()?;
-        let Some(window) = self.app.get_webview_window("csrep-view") else { return Ok(()) };
+        self.watch_csrep_window();
+        Ok(())
+    }
+
+    /// Players whose CSRep lookup stopped at CSRep's security check, or at the pause that follows several.
+    fn csrep_blocked(&self) -> Vec<String> {
+        let state = self.state.lock().unwrap();
+        let blocked = |id: &String| {
+            state.players.get(id).and_then(|p| p.provider("csrep")).is_some_and(|r| matches!(r.status.as_str(), "verification-required" | "paused"))
+        };
+        state.players.ids().into_iter().filter(blocked).collect()
+    }
+
+    /// Opens one CSRep page that stopped at the security check, so it can be completed once for everyone;
+    /// when the window closes, every player who was blocked is looked up again.
+    pub fn csrep_verify(self: &Arc<Self>) -> Result<(), String> {
+        match self.csrep_blocked().first() {
+            Some(id) => self.providers.csrep.open_profile(id, false)?,
+            None => self.providers.csrep.open_login()?,
+        }
+        self.watch_csrep_window();
+        Ok(())
+    }
+
+    /// When the visible CSRep window closes: check the sign-in and retry the players CSRep blocked.
+    fn watch_csrep_window(self: &Arc<Self>) {
+        let Some(window) = self.app.get_webview_window("csrep-view") else { return };
         {
             let mut misc = self.misc.lock().unwrap();
             if misc.csrep_login_watched {
-                return Ok(());
+                return;
             }
             misc.csrep_login_watched = true;
         }
@@ -943,10 +970,14 @@ impl Engine {
             if let tauri::WindowEvent::Destroyed = event {
                 engine.misc.lock().unwrap().csrep_login_watched = false;
                 let engine = engine.clone();
-                tauri::async_runtime::spawn(async move { engine.check_csrep().await });
+                tauri::async_runtime::spawn(async move {
+                    engine.check_csrep().await;
+                    for id in engine.csrep_blocked() {
+                        engine.ensure(&id, Force::Failed);
+                    }
+                });
             }
         });
-        Ok(())
     }
 
     pub async fn check_csrep(self: &Arc<Self>) {

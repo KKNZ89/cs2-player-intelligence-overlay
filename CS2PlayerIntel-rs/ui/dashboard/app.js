@@ -2,7 +2,7 @@ import { byId, esc, setClass, setHidden, setHtml, setText } from '../lib/dom.js'
 import { providerStatusText, rosterSummaryText, updateText } from '../lib/status.js';
 import { renderLiveStats } from '../lib/live-stats.js';
 import { icon } from '../lib/icons.js';
-import { SHARED, ago, avatar, colourClass, columns as c, displayName, groups, history, isNum, issuesHtml, matchTitle, sourcesOff, playerChips, playerName, profileIndicator, rosterCounts, roundText, scoreHtml, setPriority, setPrivacy, statusIcons, teamAverages, valueOf, winChance } from '../lib/format.js';
+import { SHARED, ago, avatar, colourClass, columns as c, displayName, groups, history, isNum, issuesHtml, matchTitle, sourcesOff, csrepBlocked, playerChips, playerName, profileIndicator, rosterCounts, roundText, scoreHtml, setPriority, setPrivacy, statusIcons, teamAverages, valueOf, winChance } from '../lib/format.js';
 import { renderPlayerDetails } from './details.js';
 import { bindHistory, loadHistory } from './history.js';
 import { api } from '../lib/bridge.js';
@@ -532,6 +532,18 @@ function renderDiagnostics(state) {
     || '<tr><td colspan="6" class="muted">No players yet.</td></tr>');
 }
 
+/** Copies the last match's log, folded for pasting; shows it in the log box if the clipboard refuses. */
+async function copyReport() {
+  const report = await api.matchReport();
+  try {
+    await navigator.clipboard.writeText(report);
+    toast(`Copied the last match's log (${report.split('\n').length} lines).`);
+  } catch {
+    setText(els.diagLog, report);
+    toast('Could not use the clipboard; the report is in the log box to copy.');
+  }
+}
+
 async function loadLog() {
   try {
     const lines = await api.recentDiagnostics();
@@ -549,13 +561,21 @@ function noticeHidden() {
 }
 
 function renderSourcesNotice(state) {
+  const players = state.players || [];
   const off = sourcesOff(state.settings);
-  const show = Boolean(off) && (state.players || []).length > 0 && !noticeHidden();
-  setHidden(els.sourcesNotice, !show);
-  if (!show) return;
-  const missing = [off.includes('CSStats') && 'K/D, ADR and HS %', off.includes('CSRep') && 'the CSRep Trust Score'].filter(Boolean).join(' and ');
-  setHtml(els.sourcesNotice, `<p>${icon('alert', { size: 14 })}<span>${off} ${off.includes(' and ') ? 'are' : 'is'} off, so ${missing} often show N/A. Reading their pages is opt-in: check their terms, then turn ${off.includes(' and ') ? 'them' : 'it'} on.</span></p>
+  const parts = [];
+  if (off && players.length && !noticeHidden()) {
+    const missing = [off.includes('CSStats') && 'K/D, ADR and HS %', off.includes('CSRep') && 'the CSRep Trust Score'].filter(Boolean).join(' and ');
+    parts.push(`<p>${icon('alert', { size: 14 })}<span>${off} ${off.includes(' and ') ? 'are' : 'is'} off, so ${missing} often show N/A. Reading their pages is opt-in: check their terms, then turn ${off.includes(' and ') ? 'them' : 'it'} on.</span></p>
     <div class="button-row"><button class="btn small" type="button" data-notice="open">Open Data sources</button><button class="btn ghost small" type="button" data-notice="hide">Don't show again</button></div>`);
+  }
+  const blocked = csrepBlocked(players);
+  if (blocked) {
+    parts.push(`<p>${icon('alert', { size: 14 })}<span>CSRep asked for a security check, so ${blocked === 1 ? '1 player has' : `${blocked} players have`} no CSRep data. Complete the check once in the window that opens, then close it: every blocked player is looked up again.</span></p>
+    <div class="button-row"><button class="btn small" type="button" data-notice="csrep-verify">Complete CSRep check</button></div>`);
+  }
+  setHidden(els.sourcesNotice, !parts.length);
+  setHtml(els.sourcesNotice, parts.join(''));
 }
 
 function render(state) {
@@ -697,9 +717,11 @@ function bind() {
     if (button.dataset.notice === 'open') {
       showView('settings');
       showSection('data');
+    } else if (button.dataset.notice === 'csrep-verify') {
+      busy(/** @type {HTMLButtonElement} */ (button), () => api.verifyCsRep());
     } else {
       try { localStorage.setItem(NOTICE_KEY, '1'); } catch { /* the notice just shows again next time */ }
-      setHidden(els.sourcesNotice, true);
+      if (lastState) renderSourcesNotice(lastState);
     }
   });
   for (const item of /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('.nav-item'))) item.addEventListener('click', () => showView(item.dataset.view));
@@ -760,6 +782,7 @@ function bind() {
     api.openLink(link.dataset.link).catch(error => toast(error.message || String(error)));
   });
   els.openLogBtn.addEventListener('click', () => api.openDiagnosticsFolder());
+  els.copyReportBtn.addEventListener('click', () => busy(els.copyReportBtn, copyReport));
   els.refreshBtn.addEventListener('click', () => busy(els.refreshBtn, async () => {
     toast('Refreshing player data…');
     await api.refresh();

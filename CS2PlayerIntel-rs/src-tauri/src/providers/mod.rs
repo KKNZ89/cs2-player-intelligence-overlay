@@ -54,6 +54,8 @@ pub struct LookupContext {
     pub csstats_enabled: bool,
     pub csrep_pages_enabled: bool,
     pub self_id: String,
+    /// Everyone in the current lobby, so Steam's API can be asked about all of them at once.
+    pub lobby: Vec<String>,
 }
 
 pub fn http_client() -> reqwest::Client {
@@ -106,7 +108,7 @@ impl Providers {
             "csrep" => self.csrep.player(steam_id, &context.csrep_api_key).await,
             "csstats" if !context.csstats_enabled => ProviderResult::failed("disabled", "CSStats is off. Turn it on in Settings → Data sources."),
             "csstats" => self.csstats.player(steam_id).await,
-            "steam" => self.steam.player(steam_id, &context.steam_web_api_key).await,
+            "steam" => self.steam.player(steam_id, &context.steam_web_api_key, &context.lobby).await,
             "faceit" => self.faceit.player(steam_id, &context.faceit_api_key).await,
             other => ProviderResult::failed("error", format!("Unknown provider {other}")),
         }

@@ -736,7 +736,7 @@ dependencies = [
 
 [[package]]
 name = "cs2-player-intel"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "axum",
  "base64 0.22.1",

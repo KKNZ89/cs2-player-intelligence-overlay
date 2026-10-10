@@ -7,6 +7,7 @@ use crate::model::ProviderResult;
 use chrono::{Datelike, NaiveDate};
 use regex::Regex;
 use serde_json::{json, Map, Value};
+use std::collections::HashMap;
 use std::time::Duration;
 
 const TIMEOUT: Duration = Duration::from_secs(10);
@@ -17,6 +18,10 @@ const RATE_LIMIT_WAIT: Duration = Duration::from_secs(15);
 /// The pause doubles each time Steam is still limiting afterwards, up to an hour.
 const RATE_LIMIT_PAUSE_MS: i64 = 10 * 60_000;
 const RATE_LIMIT_PAUSE_MAX_MS: i64 = 60 * 60_000;
+/// Steam's API answers profile and ban questions for up to 100 accounts per request.
+const BATCH_MAX: usize = 100;
+/// Lobby answers not yet used by a lookup are dropped after this long.
+const BATCH_KEEP_MS: i64 = 10 * 60_000;
 
 fn xml_value(xml: &str, tag: &str) -> Option<String> {
     let pattern = Regex::new(&format!(r"<{tag}>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?</{tag}>")).ok()?;
@@ -36,9 +41,20 @@ fn pause_after(previous: u32) -> i64 {
     (RATE_LIMIT_PAUSE_MS << previous.min(3)).min(RATE_LIMIT_PAUSE_MAX_MS)
 }
 
-/// A GetPlayerSummaries answer, with the same fields as the profile XML (bans come from GetPlayerBans).
-pub fn parse_player_summary(json: &Value) -> Option<Map<String, Value>> {
-    let player = json["response"]["players"].get(0)?;
+/// A GetPlayerSummaries answer per SteamID, with the same fields as the profile XML (bans come from
+/// GetPlayerBans). Accounts that don't exist are missing.
+pub fn parse_player_summaries(json: &Value) -> HashMap<String, Map<String, Value>> {
+    let players = json["response"]["players"].as_array().map(Vec::as_slice).unwrap_or_default();
+    players.iter().filter_map(|player| Some((player["steamid"].as_str()?.to_string(), parse_player_summary(player)?))).collect()
+}
+
+/// A GetPlayerBans answer per SteamID.
+pub fn parse_player_bans(json: &Value) -> HashMap<String, Value> {
+    let players = json["players"].as_array().map(Vec::as_slice).unwrap_or_default();
+    players.iter().filter_map(|entry| Some((entry["SteamId"].as_str()?.to_string(), entry.clone()))).collect()
+}
+
+fn parse_player_summary(player: &Value) -> Option<Map<String, Value>> {
     let public = player["communityvisibilitystate"].as_i64() == Some(3);
     let fields = json!({
         "name": player["personaname"].as_str().unwrap_or_default(),
@@ -72,6 +88,29 @@ pub fn parse_profile_xml(xml: &str) -> Option<Map<String, Value>> {
     fields.as_object().cloned()
 }
 
+/// What one lobby-wide request pair said about an account: its profile (None: no such account) and bans
+/// (None: the ban request failed).
+#[derive(Clone)]
+struct LobbyAnswer {
+    at: i64,
+    profile: Option<Map<String, Value>>,
+    bans: Option<Value>,
+}
+
+/// The SteamIDs for one lobby request: this player first, then lobby members without an answer, at most 100.
+fn batch_ids(steam_id: &str, lobby: &[String], answered: &HashMap<String, LobbyAnswer>) -> Vec<String> {
+    let mut ids = vec![steam_id.to_string()];
+    for id in lobby {
+        if ids.len() >= BATCH_MAX {
+            break;
+        }
+        if !id.is_empty() && !ids.contains(id) && !answered.contains_key(id) {
+            ids.push(id.clone());
+        }
+    }
+    ids
+}
+
 /// A rate-limit pause for one of Steam's services.
 #[derive(Default)]
 struct Pause {
@@ -87,6 +126,9 @@ pub struct SteamProfileProvider {
     /// never holds up lookups made with an API key.
     community: Pause,
     api: Pause,
+    /// Answers from lobby-wide API requests, each used by that player's lookup. Locked across the request,
+    /// so lookups starting together wait for one request instead of each making their own.
+    lobby: tokio::sync::Mutex<HashMap<String, LobbyAnswer>>,
 }
 
 /// Whether a request goes to the Web API rather than the community pages.
@@ -96,7 +138,7 @@ fn is_api(url: &str) -> bool {
 
 impl SteamProfileProvider {
     pub fn new(http: reqwest::Client) -> Self {
-        Self { http, queue: tokio::sync::Mutex::new(()), community: Pause::default(), api: Pause::default() }
+        Self { http, queue: tokio::sync::Mutex::new(()), community: Pause::default(), api: Pause::default(), lobby: Default::default() }
     }
 
     /// Requests are serialized and spaced so a full lobby does not trip Steam's rate limit.
@@ -136,11 +178,18 @@ impl SteamProfileProvider {
         }
     }
 
-    pub async fn player(&self, steam_id: &str, api_key: &str) -> ProviderResult {
+    pub async fn player(&self, steam_id: &str, api_key: &str, lobby: &[String]) -> ProviderResult {
         let profile_url = format!("https://steamcommunity.com/profiles/{steam_id}");
-        // With a Web API key the profile comes from Steam's API, which allows far more requests than the
-        // community pages; without one, from the public profile XML.
-        let profile = if api_key.is_empty() { self.profile_xml(&profile_url).await } else { self.profile_api(steam_id, api_key).await };
+        // With a Web API key the profile and bans come from Steam's API, asked about the whole lobby at once;
+        // without one, from the public profile XML, one player at a time.
+        let (profile, bans) = if api_key.is_empty() {
+            (self.profile_xml(&profile_url).await, None)
+        } else {
+            match self.lobby_answer(steam_id, api_key, lobby).await {
+                Ok(answer) => (answer.profile.ok_or_else(|| Failure::new("not-found")), answer.bans),
+                Err(failure) => (Err(failure), None),
+            }
+        };
         let mut data = match profile {
             Ok(data) => data,
             Err(failure) => return failure.into_result(Some(profile_url)),
@@ -150,10 +199,42 @@ impl SteamProfileProvider {
         }
         data.insert("hoursReason".into(), "Needs a Steam Web API key".into());
         data.insert("profileUrl".into(), profile_url.into());
+        if let Some(entry) = bans {
+            for (key, field) in
+                [("vacBans", "NumberOfVACBans"), ("gameBans", "NumberOfGameBans"), ("daysSinceLastBan", "DaysSinceLastBan"), ("vacBanned", "VACBanned")]
+            {
+                data.insert(key.into(), entry[field].clone());
+            }
+        }
         if !api_key.is_empty() {
-            self.add_api_data(&mut data, steam_id, api_key).await;
+            self.add_hours(&mut data, steam_id, api_key).await;
         }
         ProviderResult::ok(data)
+    }
+
+    /// This player's profile and bans from Steam's API. The first lookup in a lobby asks about everyone in
+    /// it (one request for profiles, one for bans); the others then use those answers.
+    async fn lobby_answer(&self, steam_id: &str, key: &str, lobby: &[String]) -> Result<LobbyAnswer, Failure> {
+        let mut answers = self.lobby.lock().await;
+        let now = crate::model::now_ms();
+        answers.retain(|_, answer| now - answer.at < BATCH_KEEP_MS);
+        if let Some(answer) = answers.remove(steam_id) {
+            return Ok(answer);
+        }
+        let ids = batch_ids(steam_id, lobby, &answers);
+        let key = percent_encoding::utf8_percent_encode(key, percent_encoding::NON_ALPHANUMERIC).to_string();
+        let api = "https://api.steampowered.com/ISteamUser";
+        let text = self.get(&format!("{api}/GetPlayerSummaries/v2/?key={key}&steamids={}", ids.join(","))).await?;
+        let json: Value = serde_json::from_str(&text).map_err(|e| Failure::with("error", format!("Steam API: {e}")))?;
+        let mut profiles = parse_player_summaries(&json);
+        let bans = self.get(&format!("{api}/GetPlayerBans/v1/?key={key}&steamids={}", ids.join(","))).await;
+        let mut bans = bans.ok().and_then(|text| serde_json::from_str::<Value>(&text).ok()).map(|json| parse_player_bans(&json));
+        let at = crate::model::now_ms();
+        for id in &ids {
+            let answer = LobbyAnswer { at, profile: profiles.remove(id), bans: bans.as_mut().and_then(|b| b.remove(id)) };
+            answers.insert(id.clone(), answer);
+        }
+        answers.remove(steam_id).ok_or_else(|| Failure::new("not-found"))
     }
 
     async fn profile_xml(&self, profile_url: &str) -> Result<Map<String, Value>, Failure> {
@@ -161,20 +242,14 @@ impl SteamProfileProvider {
         parse_profile_xml(&xml).ok_or_else(|| Failure::new("not-found"))
     }
 
-    async fn profile_api(&self, steam_id: &str, key: &str) -> Result<Map<String, Value>, Failure> {
-        let key = percent_encoding::utf8_percent_encode(key, percent_encoding::NON_ALPHANUMERIC).to_string();
-        let text = self.get(&format!("https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/?key={key}&steamids={steam_id}")).await?;
-        let json: Value = serde_json::from_str(&text).map_err(|e| Failure::with("error", format!("Steam API: {e}")))?;
-        parse_player_summary(&json).ok_or_else(|| Failure::new("not-found"))
-    }
-
-    async fn add_api_data(&self, data: &mut Map<String, Value>, steam_id: &str, key: &str) {
-        let api = "https://api.steampowered.com";
+    /// CS2 hours, which Steam's API gives one account at a time.
+    async fn add_hours(&self, data: &mut Map<String, Value>, steam_id: &str, key: &str) {
         let key = percent_encoding::utf8_percent_encode(key, percent_encoding::NON_ALPHANUMERIC).to_string();
         let games = self
-            .get(&format!("{api}/IPlayerService/GetOwnedGames/v1/?key={key}&steamid={steam_id}&include_played_free_games=1&appids_filter%5B0%5D=730"))
+            .get(&format!(
+                "https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?key={key}&steamid={steam_id}&include_played_free_games=1&appids_filter%5B0%5D=730"
+            ))
             .await;
-        let bans = self.get(&format!("{api}/ISteamUser/GetPlayerBans/v1/?key={key}&steamids={steam_id}")).await;
         let reason = match games.as_ref().map(|text| serde_json::from_str::<Value>(text)) {
             Ok(Ok(json)) => match json["response"]["games"].as_array().and_then(|g| g.iter().find(|game| game["appid"] == 730)) {
                 Some(game) => {
@@ -187,14 +262,6 @@ impl SteamProfileProvider {
             Err(failure) => format!("Steam API {}", failure.status),
         };
         data.insert("hoursReason".into(), reason.into());
-        if let Ok(Ok(json)) = bans.as_ref().map(|text| serde_json::from_str::<Value>(text)) {
-            if let Some(entry) = json["players"].get(0) {
-                data.insert("vacBans".into(), entry["NumberOfVACBans"].clone());
-                data.insert("gameBans".into(), entry["NumberOfGameBans"].clone());
-                data.insert("daysSinceLastBan".into(), entry["DaysSinceLastBan"].clone());
-                data.insert("vacBanned".into(), entry["VACBanned"].clone());
-            }
-        }
     }
 }
 
@@ -220,11 +287,31 @@ mod tests {
         assert_eq!([0, 1, 2, 3, 9].map(pause_after), [10, 20, 40, 60, 60].map(|m: i64| m * 60_000));
         assert!(is_api("https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/?key=k&steamids=1"));
         assert!(!is_api("https://steamcommunity.com/profiles/1/?xml=1"), "the community pages are paused separately");
-        let json = json!({ "response": { "players": [{ "personaname": "Pechkin", "avatarmedium": "https://avatars.steamstatic.com/a_medium.jpg", "communityvisibilitystate": 3, "timecreated": 1_500_000_000 }] } });
-        let profile = parse_player_summary(&json).unwrap();
+        let json = json!({ "response": { "players": [
+            { "steamid": "1", "personaname": "Pechkin", "avatarmedium": "https://avatars.steamstatic.com/a_medium.jpg", "communityvisibilitystate": 3, "timecreated": 1_500_000_000 },
+            { "steamid": "2", "personaname": "Hidden", "communityvisibilitystate": 1 }
+        ] } });
+        let profiles = parse_player_summaries(&json);
+        let profile = &profiles["1"];
         assert_eq!((profile["name"].as_str(), profile["privacy"].as_str()), (Some("Pechkin"), Some("public")));
         assert_eq!(profile["avatar"], "https://avatars.steamstatic.com/a_medium.jpg");
         assert_eq!(profile["createdAt"], 1_500_000_000_000i64);
-        assert!(parse_player_summary(&json!({ "response": { "players": [] } })).is_none(), "unknown account");
+        assert_eq!(profiles["2"]["privacy"], "private");
+        assert!(!profiles.contains_key("3"), "unknown accounts are missing");
+        let bans = parse_player_bans(
+            &json!({ "players": [{ "SteamId": "2", "NumberOfVACBans": 1, "NumberOfGameBans": 0, "VACBanned": true, "DaysSinceLastBan": 300 }] }),
+        );
+        assert_eq!(bans["2"]["NumberOfVACBans"], 1);
+    }
+
+    #[test]
+    fn one_request_covers_the_lobby() {
+        let lobby: Vec<String> = ["a", "b", "c", "", "b"].map(String::from).to_vec();
+        let mut answered = HashMap::new();
+        assert_eq!(batch_ids("b", &lobby, &answered), ["b", "a", "c"], "this player first, no blanks or repeats");
+        answered.insert("a".to_string(), LobbyAnswer { at: 0, profile: None, bans: None });
+        assert_eq!(batch_ids("x", &lobby, &answered), ["x", "b", "c"], "lobby members already answered are left out");
+        let big: Vec<String> = (0..250).map(|n| n.to_string()).collect();
+        assert_eq!(batch_ids("me", &big, &HashMap::new()).len(), BATCH_MAX);
     }
 }

@@ -43,7 +43,7 @@ First run:
 2. Optional, in Settings → Data sources:
    - Turn on **Read CSStats pages** and **Sign in to CSStats** for CSStats stats. You sign in on csstats.gg itself; the app never sees your password.
    - Turn on **Read CSRep public pages**, or add a CSRep API key, for CSRep's Trust Score. Optionally **Sign in to CSRep** (through Steam, on csrep.gg) for its stats overview too: K/D, ADR, HLTV rating, KAST and time to damage.
-   - A **Steam Web API key** for CS2 hours and game bans. With a key, profiles also come from Steam's API instead of the public profile pages, which Steam rate-limits quickly; without one, a rate-limited Steam pauses lookups for 10 minutes, then longer if it persists.
+   - A **Steam Web API key** for CS2 hours and game bans. With a key, profiles and bans also come from Steam's API instead of the public profile pages, which Steam rate-limits quickly, and the whole lobby is asked about in one request; without one, a rate-limited Steam pauses lookups for 10 minutes, then longer if it persists.
    - A **FACEIT API key** for FACEIT match stats and profile links.
 
    Keys are stored encrypted with Windows DPAPI. Settings shows whether each key is saved, with the first 12 hex digits of its SHA-256 hash so you can tell keys apart without showing them.
@@ -72,7 +72,7 @@ For reliable mouse navigation, press your configured clickable-overlay shortcut 
 - **Match:** scoreboard, your live stats, a lobby summary (team averages side by side and notable players), and one table per team. Click a player for details in five tabs: Overview, Performance, Matches, History and Notes.
 - **History:** every match you've finished, newest first (date, map, mode, result). Open one to see who was in it, on which side, and their hours, CSRep score, FACEIT level and Elo, and CSStats K/D and HS % as they were at the time, with how often you've met each player.
 - **Settings:** general, overlay, hotkeys, data sources, analysis, notifications, appearance, database and about.
-- **Diagnostics:** connection and provider status, every lookup per player (why a value is missing), and the log.
+- **Diagnostics:** connection and provider status, every lookup per player (why a value is missing), and the log. **Copy last match** copies the log since your last match started, with repeated lines folded, ready to paste into an issue.
 - **Help:** getting started, keys, sources and common problems.
 
 **How values are shown**
@@ -231,7 +231,7 @@ The Windows [CI workflow](../.github/workflows/verify.yml) runs lint, unit tests
 | Overlay is not visible | Use borderless/windowed mode, check the chosen monitor and trigger, and try pinning it with F8. |
 | Players are missing or only marked possible | Steam's co-play list is evidence, not a guaranteed complete roster. Use manual player selection or the console-log fallback. |
 | A value is N/A | Hover it or open Diagnostics for the reason: private profile, rate limit, missing key, sign-in, or verification. |
-| CSRep or CSStats needs verification or cookie preferences | Open that profile from the app, complete the site's check or choose cookie preferences yourself, then refresh the player. Browser sessions are remembered. CSRep retains its automatic "Deny all" choice for optional cookies when available; other consent prompts require your decision. Security challenges are never solved automatically, and sites may restrict embedded browsers. |
+| CSRep or CSStats needs verification or cookie preferences | For CSRep, click **Complete CSRep check** on the Match page: complete the check in the window that opens and close it, and every blocked player is looked up again. Otherwise open that profile from the app, complete the site's check or choose cookie preferences yourself, then refresh the player. Browser sessions are remembered. CSRep retains its automatic "Deny all" choice for optional cookies when available; other consent prompts require your decision. Security challenges are never solved automatically, and sites may restrict embedded browsers. |
 | A shortcut cannot register | Choose a different combination in Settings; another application may already use it. |
 | Windows shows a SmartScreen warning | The installer lacks Authenticode signing. Download only from the project's release page; do not disable Windows protection globally. |
 
@@ -252,7 +252,7 @@ Never commit the updater private key, provider keys, browser profiles, or person
 
 ## Support and contributing
 
-[Report a bug or request a feature](https://github.com/KKNZ89/cs2-player-intelligence-overlay/issues). Report security problems privately, as described in [SECURITY.md](../SECURITY.md). Include the app version, Windows version, CS2 display mode, reproduction steps, expected and actual behavior, and relevant redacted Diagnostics output. Remove API keys, GSI tokens, personal paths, and player identifiers you do not want public.
+[Report a bug or request a feature](https://github.com/KKNZ89/cs2-player-intelligence-overlay/issues). Report security problems privately, as described in [SECURITY.md](../SECURITY.md). Include the app version, Windows version, CS2 display mode, reproduction steps, expected and actual behavior, and relevant redacted Diagnostics output (Diagnostics → Copy last match gives a short version). Remove API keys, GSI tokens, personal paths, and player identifiers you do not want public.
 
 For a contribution, keep changes focused, run `npm run check`, and explain any changes to roster confidence, source attribution, persistence, or the non-invasive game boundary. Discuss substantial changes in an issue first. Do not submit injection, memory-access, gameplay-automation, or provider-verification bypass features.
 

@@ -39,6 +39,12 @@ export function sourcesOff(settings = {}) {
   return off.join(' and ');
 }
 
+/** Other players whose CSRep lookup stopped at CSRep's security check (or the pause after several). */
+export function csrepBlocked(players = []) {
+  return players.filter(p => !p.isSelf && (p.csrep?.status === 'verification-required'
+    || (p.csrep?.status === 'paused' && String(p.csrep.error || '').includes('verification-required')))).length;
+}
+
 export function na(why, { loading = false } = {}) {
   return loading ? `<span class="na loading" title="${esc(why)}"><i></i></span>` : `<span class="na" title="${esc(why)}">N/A</span>`;
 }

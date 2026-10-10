@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { colourClass, discovery, groups, issuesHtml, mapBreakdown, noteMeta, notesHtml, sourcesOff, sparkline, lobbyCount, matchTitle, playerChips, providerIssues, rosterCounts, winChance } from '../ui/lib/format.js';
+import { csrepBlocked, colourClass, discovery, groups, issuesHtml, mapBreakdown, noteMeta, notesHtml, sourcesOff, sparkline, lobbyCount, matchTitle, playerChips, providerIssues, rosterCounts, winChance } from '../ui/lib/format.js';
 import { providerStatusText } from '../ui/lib/status.js';
 
 const players = count => Array.from({ length: count }, (_, i) => ({ steamId: String(76561198000000000n + BigInt(i)), name: `P${i}`, isSelf: i === 0, side: i === 0 ? 'team' : '' }));
@@ -159,4 +159,17 @@ test('trend lines need two values and skip gaps', () => {
   const svg = sparkline([1, null, 3]);
   assert.match(svg, /^<svg class="spark"/);
   assert.equal((svg.match(/points="([^"]+)"/)[1].split(' ')).length, 2);
+});
+
+test('players CSRep blocked with its security check are counted for the one-time check', () => {
+  const players = [
+    { isSelf: true, csrep: { status: 'verification-required' } },
+    { csrep: { status: 'verification-required' } },
+    { csrep: { status: 'paused', error: 'CSRep gave no data for 3 players in a row (verification-required). Lookups resume in 15 minutes.' } },
+    { csrep: { status: 'paused', error: 'CSRep gave no data for 3 players in a row (timeout).' } },
+    { csrep: { status: 'ok' } },
+    {}
+  ];
+  assert.equal(csrepBlocked(players), 2, 'yourself, timeouts and good results are left out');
+  assert.equal(csrepBlocked(), 0);
 });
