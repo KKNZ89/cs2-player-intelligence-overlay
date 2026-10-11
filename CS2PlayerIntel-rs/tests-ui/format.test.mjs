@@ -173,3 +173,29 @@ test('players CSRep blocked with its security check are counted for the one-time
   assert.equal(csrepBlocked(players), 2, 'yourself, timeouts and good results are left out');
   assert.equal(csrepBlocked(), 0);
 });
+
+test('the win estimate names the stats it used, the live score and the tie chance', () => {
+  const win = winChance({ status: 'ok', probability: 0.464, tie: 0.09, preMatch: 0.33, confidence: 'medium', teamSize: 5, enemySize: 5, teamRated: 4, enemyRated: 3,
+    live: { ours: 7, theirs: 5, target: 13 },
+    factors: [{ key: 'premier', team: 17850, enemy: 19726.7, teamCount: 4, enemyCount: 3 }, { key: 'kd', team: 1.16, enemy: 1.31, teamCount: 4, enemyCount: 3 }, { key: 'unknown', team: 1, enemy: 2 }] });
+  assert.equal(win.text, '46%');
+  assert.equal(win.detail, 'Score 7:5 · tie 9% · from Premier, K/D · 7/10 players · medium confidence');
+  assert.match(win.title, /Premier: 17,850 vs 19,727 \(4 vs 3 players\)/);
+  assert.match(win.title, /K\/D: 1\.16 vs 1\.31/);
+  assert.match(win.title, /Before the score: 33%/);
+  assert.match(win.title, /Not yet checked against any recorded match/);
+  const checked = winChance({ status: 'ok', probability: 0.6, teamSize: 4, enemySize: 5, teamRated: 4, enemyRated: 5, openSlots: 1, unconfirmed: 2,
+    factors: [{ key: 'mapRank', team: 12.5, enemy: 11, teamCount: 4, enemyCount: 5 }],
+    calibration: { matches: 40, decided: 36, favouriteWon: 23, brier: 0.231, slope: 3.9 } });
+  assert.equal(checked.detail, 'from Skill group on this map · 9/10 players');
+  assert.match(checked.title, /2 players counted partly/);
+  assert.match(checked.title, /1 place with nobody known/);
+  assert.doesNotMatch(checked.title, /round-by-round/, 'nothing to say without a live score');
+  const live = winChance({ status: 'ok', probability: 0.3, teamSize: 5, enemySize: 5, teamRated: 5, enemyRated: 5, economy: 'pistol-lost',
+    live: { ours: 0, theirs: 1, target: 13, roundsKnown: false }, side: { map: 'de_anubis', ctRate: 0.47, recordedRounds: 1, current: 'CT', afterHalf: 'T' } });
+  assert.match(live.title, /You lost the pistol round/);
+  assert.match(live.title, /Anubis: CT wins about 47% of rounds between equal teams \(T-sided; a rough figure adjusted by 1 recorded round\)\. You play T after half-time\./);
+  assert.match(live.title, /Restart CS2 to load the updated GSI config/);
+  assert.match(checked.title, /Checked against 40 recorded matches\. The favourite won 23 of 36 \(64%\)\. Brier score 0\.231/);
+  assert.match(winChance({ status: 'not-enough-data', teamRated: 1, enemyRated: 0 }).detail, /Needs stats for 2\+ players per team \(1 vs 0\)/);
+});

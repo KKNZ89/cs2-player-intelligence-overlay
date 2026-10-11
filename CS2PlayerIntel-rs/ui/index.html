@@ -52,7 +52,7 @@
             <div id="liveRound" class="hero-sub"></div>
           </div>
           <div id="liveScore" class="hero-score"></div>
-          <div id="heroWin" class="hero-win" hidden title="This app's own rough estimate from average Premier rating. Not a provider metric and not validated.">
+          <div id="heroWin" class="hero-win" hidden title="This app's own rough estimate from the players' stats and the live score. Not a provider metric and not validated.">
             <svg class="ring" viewBox="0 0 44 44" aria-hidden="true"><circle class="ring-track" cx="22" cy="22" r="19"/><circle id="winRing" class="ring-value" cx="22" cy="22" r="19"/></svg>
             <div class="ring-label"><strong id="winValue" class="win-value">—</strong><span>rough estimate, unvalidated</span></div>
             <div class="win-meta"><div class="win-bar"><span id="winBar"></span></div><div id="winDetail" class="muted small">Mark teammates and opponents to estimate</div></div>
@@ -235,7 +235,7 @@
                 <header class="panel-head"><h2>Analysis</h2></header>
                 <label class="switch"><input id="profileIndicators" type="checkbox"><span class="track"></span><span class="switch-text"><b>Profile indicators</b><small>Normal / Review / Not enough data, from explained comparisons between sources (Premier vs FACEIT, hours, account age, Leetify aim)</small></span></label>
                 <label class="field"><span class="field-label">Minimum Leetify matches for tendencies and mechanics comparisons</span><input id="minSampleMatches" class="input" type="number" min="0" max="1000" step="5" value="30"></label>
-                <label class="switch"><input id="showWinEstimate" type="checkbox"><span class="track"></span><span class="switch-text"><b>Show rough win estimate</b><small>This app's own estimate from average Premier rating; not calibrated or validated, so off by default</small></span></label>
+                <label class="switch"><input id="showWinEstimate" type="checkbox"><span class="track"></span><span class="switch-text"><b>Show rough win estimate</b><small>This app's own estimate from the players' ratings (Premier, FACEIT, skill group) and form (HLTV and Leetify ratings, K/D, ADR, win rate; missing ones left out) and, during the match, the rounds played (with the economy and the map's CT or T lean) and your K/D. Checked and tuned against your recorded matches but not validated in general, so off by default</small></span></label>
                 <p class="muted small">Indicators describe statistical discrepancies, never cheating, and there are no cheat probabilities. Thresholds are fixed rules of thumb: no reference dataset exists for percentiles against similar players, so none are shown.</p>
               </article>
 
@@ -413,7 +413,7 @@
           <ul>
             <li><b>No players</b>: check that Game state says Connected (bottom left). If not, install the GSI config and restart CS2.</li>
             <li><b>Some players are missing</b>: CS2 only reports the players it shows you, so some appear later in the match. You can add a SteamID by hand on the Match page.</li>
-            <li><b>Overlay doesn't show</b>: CS2 is probably in exclusive fullscreen. Switch to borderless.</li>
+            <li><b>Overlay doesn't show</b>: CS2 is probably in exclusive fullscreen. Switch to borderless. The overlay also stays hidden while another window is in front of CS2.</li>
             <li><b>A source shows nothing</b>: open Diagnostics. CSStats and CSRep sometimes ask for a browser check; open the player's CSRep or CSStats page once and the lookups work again.</li>
           </ul>
           <p>Still stuck? Open an issue on <a href="https://github.com/KKNZ89/cs2-player-intelligence-overlay/issues" data-link="issues">GitHub</a> and paste the log from Diagnostics → Copy last match (or attach the file from Open folder).</p>

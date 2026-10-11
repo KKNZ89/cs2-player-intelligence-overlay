@@ -9,6 +9,7 @@
 
 use crate::gsi::GsiSummary;
 use crate::model::{is_steam_id, now_ms};
+use crate::prediction::{calibrate, map_key, Calibration, Outcome, MODEL_VERSION};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -28,7 +29,11 @@ CREATE TABLE IF NOT EXISTS matches (
     deaths INTEGER,
     assists INTEGER,
     mvps INTEGER,
-    score INTEGER
+    score INTEGER,
+    predicted REAL,
+    predicted_gap REAL,
+    prediction_model INTEGER,
+    rounds TEXT
 );
 CREATE TABLE IF NOT EXISTS encounters (
     match_id INTEGER NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
@@ -66,6 +71,14 @@ const MAX_NOTE_CHARS: usize = 2000;
 
 /// Your own scoreboard line for a match, as CS2 reported it at the end (GSI). Your own game data, so it
 /// is kept; it shows how you do on each map over time.
+/// The win estimate shown for a match from the players' stats alone, and the strength gap behind it, kept
+/// to check the estimate against results and refit it. Both are this app's own numbers.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MatchEstimate {
+    pub chance: f64,
+    pub gap: f64,
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct OwnMatchStats {
     pub kills: Option<i64>,
@@ -158,6 +171,8 @@ pub struct MatchHistoryStore {
     pub load_error: String,
     /// Encounter summaries per account (your SteamID), rebuilt after every write.
     summaries: HashMap<String, HashMap<String, HistorySummary>>,
+    /// How the win estimate did on recorded matches, rebuilt after every write.
+    calibration: Option<Calibration>,
 }
 
 fn open_connection(file: &Path) -> rusqlite::Result<Connection> {
@@ -177,10 +192,21 @@ fn upgrade(conn: &Connection) -> rusqlite::Result<()> {
     if !has_started_at {
         conn.execute_batch("ALTER TABLE matches ADD COLUMN started_at INTEGER;")?;
     }
-    for column in ["kills", "deaths", "assists", "mvps", "score"] {
+    let columns = [
+        ("kills", "INTEGER"),
+        ("deaths", "INTEGER"),
+        ("assists", "INTEGER"),
+        ("mvps", "INTEGER"),
+        ("score", "INTEGER"),
+        ("predicted", "REAL"),
+        ("predicted_gap", "REAL"),
+        ("prediction_model", "INTEGER"),
+        ("rounds", "TEXT"),
+    ];
+    for (column, kind) in columns {
         let present: bool = conn.query_row(&format!("SELECT COUNT(*) FROM pragma_table_info('matches') WHERE name = '{column}'"), [], |row| row.get(0))?;
         if !present {
-            conn.execute_batch(&format!("ALTER TABLE matches ADD COLUMN {column} INTEGER;"))?;
+            conn.execute_batch(&format!("ALTER TABLE matches ADD COLUMN {column} {kind};"))?;
         }
     }
     conn.execute_batch("CREATE INDEX IF NOT EXISTS matches_by_start ON matches(started_at);")?;
@@ -205,7 +231,7 @@ impl MatchHistoryStore {
                 (conn, format!("Match history could not be opened ({error}); this session's matches are kept in memory only."))
             }
         };
-        Self { file, conn, load_error, summaries: HashMap::new() }
+        Self { file, conn, load_error, summaries: HashMap::new(), calibration: None }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -213,6 +239,8 @@ impl MatchHistoryStore {
         &mut self,
         started_at: Option<i64>,
         own: &OwnMatchStats,
+        estimate: Option<MatchEstimate>,
+        rounds: &str,
         ended_at: i64,
         map: &str,
         mode: &str,
@@ -222,8 +250,25 @@ impl MatchHistoryStore {
     ) -> rusqlite::Result<()> {
         let tx = self.conn.transaction()?;
         tx.execute(
-            "INSERT INTO matches (ended_at, map, mode, result, self_id, started_at, kills, deaths, assists, mvps, score) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-            params![ended_at, map, mode, result, self_id, started_at, own.kills, own.deaths, own.assists, own.mvps, own.score],
+            "INSERT INTO matches (ended_at, map, mode, result, self_id, started_at, kills, deaths, assists, mvps, score, predicted, predicted_gap, prediction_model, rounds) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+            params![
+                ended_at,
+                map,
+                mode,
+                result,
+                self_id,
+                started_at,
+                own.kills,
+                own.deaths,
+                own.assists,
+                own.mvps,
+                own.score,
+                estimate.map(|e| e.chance),
+                estimate.map(|e| e.gap),
+                estimate.map(|_| MODEL_VERSION),
+                Some(rounds).filter(|r| !r.is_empty())
+            ],
         )?;
         let match_id = tx.last_insert_rowid();
         if let Some(started_at) = started_at {
@@ -249,7 +294,7 @@ impl MatchHistoryStore {
     /// Records a finished match; false when there is nothing worth keeping.
     #[cfg(test)]
     pub fn record(&mut self, map: &str, mode: &str, result: &str, self_id: &str, players: Vec<HistoryPlayer>) -> bool {
-        self.record_match(None, &OwnMatchStats::default(), map, mode, result, self_id, players)
+        self.record_match(None, &OwnMatchStats::default(), None, "", map, mode, result, self_id, players)
     }
 
     /// Records a finished match that started at `started_at`, linking the notes written during it.
@@ -258,6 +303,8 @@ impl MatchHistoryStore {
         &mut self,
         started_at: Option<i64>,
         own: &OwnMatchStats,
+        estimate: Option<MatchEstimate>,
+        rounds: &str,
         map: &str,
         mode: &str,
         result: &str,
@@ -269,9 +316,52 @@ impl MatchHistoryStore {
             return false;
         }
         // History is a convenience; the match itself is unaffected when it cannot be saved.
-        let saved = self.insert(started_at, own, now_ms(), map, mode, result, self_id, &others).is_ok();
-        self.summaries.clear();
+        let saved = self.insert(started_at, own, estimate, rounds, now_ms(), map, mode, result, self_id, &others).is_ok();
+        self.changed();
         saved
+    }
+
+    /// Cached views are rebuilt after any write.
+    fn changed(&mut self) {
+        self.summaries.clear();
+        self.calibration = None;
+    }
+
+    /// How the win estimate did on recorded matches of every account (estimates from the current model with
+    /// a known result), the slope refitted to them, and the rounds recorded per map.
+    pub fn calibration(&mut self) -> Calibration {
+        if self.calibration.is_none() {
+            let outcomes: Vec<Outcome> = self
+                .conn
+                .prepare(
+                    "SELECT predicted, predicted_gap, result FROM matches \
+                     WHERE prediction_model = ?1 AND predicted IS NOT NULL AND predicted_gap IS NOT NULL AND result IN ('win', 'loss', 'tie')",
+                )
+                .and_then(|mut statement| {
+                    statement
+                        .query_map(params![MODEL_VERSION], |row| {
+                            let points = match row.get::<_, String>(2)?.as_str() {
+                                "win" => 1.0,
+                                "tie" => 0.5,
+                                _ => 0.0,
+                            };
+                            Ok(Outcome { estimate: row.get(0)?, gap: row.get(1)?, points })
+                        })?
+                        .collect()
+                })
+                .unwrap_or_default();
+            let mut calibration = calibrate(&outcomes);
+            if let Ok(mut statement) = self.conn.prepare("SELECT mode, map, rounds FROM matches WHERE rounds IS NOT NULL AND rounds != '' AND map != ''") {
+                let rows = statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)));
+                for (mode, map, rounds) in rows.into_iter().flatten().flatten() {
+                    let entry = calibration.map_rounds.entry(map_key(&mode, &map)).or_default();
+                    entry.ct += rounds.chars().filter(|c| *c == 'C').count() as u32;
+                    entry.rounds += rounds.chars().filter(|c| matches!(c, 'C' | 'T')).count() as u32;
+                }
+            }
+            self.calibration = Some(calibration);
+        }
+        self.calibration.clone().unwrap_or_default()
     }
 
     fn summaries(&mut self, self_id: &str) -> &HashMap<String, HistorySummary> {
@@ -311,7 +401,7 @@ impl MatchHistoryStore {
             .conn
             .prepare(
                 "SELECT m.id, m.ended_at, m.map, m.mode, m.result, \
-                        COALESCE(SUM(e.side = 'team'), 0), COALESCE(SUM(e.side = 'enemy'), 0), COUNT(e.steam_id) \
+                        COALESCE(SUM(e.side = 'team'), 0), COALESCE(SUM(e.side = 'enemy'), 0), COUNT(e.steam_id), m.predicted \
                  FROM matches m LEFT JOIN encounters e ON e.match_id = m.id \
                  WHERE ?1 = '' OR m.self_id = ?1 GROUP BY m.id ORDER BY m.ended_at DESC, m.id DESC LIMIT ?2 OFFSET ?3",
             )
@@ -327,6 +417,7 @@ impl MatchHistoryStore {
                             "team": row.get::<_, i64>(5)?,
                             "enemy": row.get::<_, i64>(6)?,
                             "players": row.get::<_, i64>(7)?,
+                            "predicted": row.get::<_, Option<f64>>(8)?,
                         }))
                     })?
                     .collect()
@@ -583,8 +674,26 @@ impl MatchHistoryStore {
             "version": 2,
             "exportedAt": now_ms(),
             "matches": table(
-                "SELECT id, ended_at, map, mode, result, self_id, started_at, kills, deaths, assists, mvps, score FROM matches ORDER BY ended_at",
-                &["id", "endedAt", "map", "mode", "result", "selfId", "startedAt", "kills", "deaths", "assists", "mvps", "score"]
+                "SELECT id, ended_at, map, mode, result, self_id, started_at, kills, deaths, assists, mvps, score, predicted, predicted_gap, prediction_model, rounds \
+                 FROM matches ORDER BY ended_at",
+                &[
+                    "id",
+                    "endedAt",
+                    "map",
+                    "mode",
+                    "result",
+                    "selfId",
+                    "startedAt",
+                    "kills",
+                    "deaths",
+                    "assists",
+                    "mvps",
+                    "score",
+                    "predicted",
+                    "predictedGap",
+                    "predictionModel",
+                    "rounds"
+                ]
             ),
             "encounters": table("SELECT match_id, steam_id, name, side FROM encounters", &["matchId", "steamId", "name", "side"]),
             "snapshots": table("SELECT match_id, steam_id, provider, metric, value, measured_at FROM snapshots", &["matchId", "steamId", "provider", "metric", "value", "measuredAt"]),
@@ -626,8 +735,14 @@ impl MatchHistoryStore {
                 skipped += 1;
                 continue;
             }
+            // An estimate is only kept together with the model that made it.
+            let estimate = match (m["predicted"].as_f64(), m["predictedGap"].as_f64(), m["predictionModel"].as_i64()) {
+                (Some(chance), Some(gap), Some(model)) if chance.is_finite() && gap.is_finite() => (Some(chance), Some(gap), Some(model)),
+                _ => (None, None, None),
+            };
             tx.execute(
-                "INSERT INTO matches (ended_at, map, mode, result, self_id, started_at, kills, deaths, assists, mvps, score) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                "INSERT INTO matches (ended_at, map, mode, result, self_id, started_at, kills, deaths, assists, mvps, score, predicted, predicted_gap, prediction_model, rounds) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
                 params![
                     ended_at,
                     map,
@@ -639,7 +754,11 @@ impl MatchHistoryStore {
                     m["deaths"].as_i64(),
                     m["assists"].as_i64(),
                     m["mvps"].as_i64(),
-                    m["score"].as_i64()
+                    m["score"].as_i64(),
+                    estimate.0,
+                    estimate.1,
+                    estimate.2,
+                    m["rounds"].as_str().filter(|r| !r.is_empty() && r.chars().all(|c| matches!(c, 'C' | 'T' | '?')))
                 ],
             )
             .map_err(|e| e.to_string())?;
@@ -695,7 +814,7 @@ impl MatchHistoryStore {
                 .map_err(|e| e.to_string())?;
         }
         tx.commit().map_err(|e| e.to_string())?;
-        self.summaries.clear();
+        self.changed();
         Ok(json!({ "matches": added, "skipped": skipped, "notes": notes }))
     }
 
@@ -704,7 +823,7 @@ impl MatchHistoryStore {
         let sql = if notes { "DELETE FROM matches; DELETE FROM player_notes;" } else { "DELETE FROM matches;" };
         self.conn.execute_batch(sql).map_err(|e| e.to_string())?;
         let _ = self.conn.execute_batch("VACUUM;");
-        self.summaries.clear();
+        self.changed();
         Ok(())
     }
 
@@ -715,7 +834,7 @@ impl MatchHistoryStore {
         }
         let cutoff = now_ms() - (days * 86_400_000.0) as i64;
         if self.conn.execute("DELETE FROM matches WHERE ended_at < ?1", params![cutoff]).unwrap_or(0) > 0 {
-            self.summaries.clear();
+            self.changed();
         }
     }
 
@@ -793,8 +912,8 @@ mod tests {
         assert!(store.match_details(9999).is_none());
 
         // Matches ending in the same millisecond keep their recorded order (newest first).
-        store.insert(None, &OwnMatchStats::default(), 5_000, "de_nuke", "premier", "win", ME, &[]).unwrap();
-        store.insert(None, &OwnMatchStats::default(), 5_000, "de_train", "premier", "loss", ME, &[]).unwrap();
+        store.insert(None, &OwnMatchStats::default(), None, "", 5_000, "de_nuke", "premier", "win", ME, &[]).unwrap();
+        store.insert(None, &OwnMatchStats::default(), None, "", 5_000, "de_train", "premier", "loss", ME, &[]).unwrap();
         let page = store.matches(ME, 10, 0);
         let tied: Vec<&str> = page["matches"].as_array().unwrap().iter().filter(|m| m["endedAt"] == 5_000).map(|m| m["map"].as_str().unwrap()).collect();
         assert_eq!(tied, ["de_train", "de_nuke"]);
@@ -808,7 +927,7 @@ mod tests {
         // Distinct end times: import treats matches ending in the same millisecond on one map as the same match.
         let start = now_ms() - 3_600_000;
         let mut add = |minute: i64, own: OwnMatchStats, map: &str, result: &str, side: &str| {
-            store.insert(None, &own, start + minute * 60_000, map, "premier", result, ME, &[player(A, side)]).unwrap();
+            store.insert(None, &own, None, "", start + minute * 60_000, map, "premier", result, ME, &[player(A, side)]).unwrap();
         };
         add(0, line(20, 10), "de_mirage", "win", "enemy");
         add(40, line(10, 20), "de_mirage", "loss", "enemy");
@@ -903,6 +1022,52 @@ mod tests {
     }
 
     #[test]
+    fn estimates_are_checked_against_results_and_exported() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = MatchHistoryStore::open(dir.path());
+        assert_eq!(store.calibration(), Calibration::default());
+        let estimate = |chance| Some(MatchEstimate { chance, gap: 0.2 });
+        let mut record = |map: &str, result: &str, chance: Option<MatchEstimate>| {
+            store.record_match(None, &OwnMatchStats::default(), chance, "", map, "premier", result, ME, vec![player(A, "team")])
+        };
+        record("de_dust2", "win", estimate(0.66));
+        record("de_mirage", "loss", estimate(0.66));
+        record("de_nuke", "win", None);
+        record("de_inferno", "unknown", estimate(0.66));
+        let calibration = store.calibration();
+        assert_eq!((calibration.matches, calibration.decided, calibration.favourite_won), (2, 2, 1), "only estimates with a result count");
+        assert!(calibration.slope > 0.0);
+        assert_eq!(store.matches(ME, 10, 0)["matches"].as_array().unwrap().iter().filter(|m| m["predicted"] == 0.66).count(), 3);
+        let export = store.export();
+        let target = tempfile::tempdir().unwrap();
+        let mut copy = MatchHistoryStore::open(target.path());
+        copy.import(&export).unwrap();
+        assert_eq!(copy.calibration().matches, 2, "estimates travel with an export");
+    }
+
+    #[test]
+    fn round_results_are_counted_per_map_and_exported() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = MatchHistoryStore::open(dir.path());
+        // Distinct end times: an import skips a match with the same account, end time and map.
+        let mut record = |ended_at: i64, map: &str, mode: &str, rounds: &str| {
+            store.insert(None, &OwnMatchStats::default(), None, rounds, ended_at, map, mode, "win", ME, &[player(A, "team")]).unwrap()
+        };
+        record(1_000, "de_nuke", "premier", "CCTC?");
+        record(2_000, "de_nuke", "competitive", "TC");
+        record(3_000, "de_nuke", "scrimcomp2v2", "CCCC");
+        record(4_000, "de_dust2", "premier", "");
+        let rounds = store.calibration().map_rounds;
+        assert_eq!(rounds[&map_key("premier", "de_nuke")], crate::prediction::MapRounds { ct: 4, rounds: 6 }, "Premier and Competitive pool; '?' is left out");
+        assert_eq!(rounds[&map_key("wingman", "de_nuke")].rounds, 4);
+        assert!(!rounds.contains_key(&map_key("premier", "de_dust2")));
+        let target = tempfile::tempdir().unwrap();
+        let mut copy = MatchHistoryStore::open(target.path());
+        copy.import(&store.export()).unwrap();
+        assert_eq!(copy.calibration().map_rounds, rounds, "round results travel with an export");
+    }
+
+    #[test]
     fn notes_export_and_clear() {
         let dir = tempfile::tempdir().unwrap();
         let mut store = MatchHistoryStore::open(dir.path());
@@ -931,7 +1096,7 @@ mod tests {
         let during = NoteContext { map: "de_mirage".into(), mode: "premier".into(), side: "enemy".into(), match_started_at: Some(1_000), match_id: None };
         let first = store.add_note(A, "Peeks banana every round", &during).unwrap();
         assert!(first["matchId"].is_null(), "the match isn't recorded yet");
-        assert!(store.record_match(Some(1_000), &OwnMatchStats::default(), "de_mirage", "premier", "loss", ME, vec![player(A, "enemy")]));
+        assert!(store.record_match(Some(1_000), &OwnMatchStats::default(), None, "", "de_mirage", "premier", "loss", ME, vec![player(A, "enemy")]));
         let after = store.add_note(A, "Reported for griefing", &during).unwrap();
         let notes = store.notes_for(A);
         assert_eq!(notes.len(), 2);
@@ -943,7 +1108,7 @@ mod tests {
         let details = store.match_details(match_id).unwrap();
         assert_eq!(details["players"][0]["notes"].as_array().unwrap().len(), 2);
         // A note for another match, written from the History page, stays with that match.
-        assert!(store.record_match(Some(2_000), &OwnMatchStats::default(), "de_nuke", "premier", "win", ME, vec![player(A, "team")]));
+        assert!(store.record_match(Some(2_000), &OwnMatchStats::default(), None, "", "de_nuke", "premier", "win", ME, vec![player(A, "team")]));
         let later = store.match_details(match_id + 1).unwrap();
         assert!(later["players"][0]["notes"].as_array().unwrap().is_empty());
         let context = NoteContext { match_id: Some(match_id + 1), side: "team".into(), ..NoteContext::default() };
@@ -977,7 +1142,7 @@ mod tests {
         assert_eq!(store.notes_for(A)[0]["createdAt"], 7);
         assert_eq!(store.matches(ME, 10, 0)["total"], 1);
         assert!(
-            store.record_match(Some(9), &OwnMatchStats::default(), "de_nuke", "premier", "win", ME, vec![player(A, "team")]),
+            store.record_match(Some(9), &OwnMatchStats::default(), None, "", "de_nuke", "premier", "win", ME, vec![player(A, "team")]),
             "new matches keep their start time"
         );
     }
@@ -986,7 +1151,7 @@ mod tests {
     fn retention_removes_old_matches() {
         let dir = tempfile::tempdir().unwrap();
         let mut store = MatchHistoryStore::open(dir.path());
-        store.insert(None, &OwnMatchStats::default(), now_ms() - 40 * 86_400_000, "de_nuke", "competitive", "win", ME, &[player(A, "")]).unwrap();
+        store.insert(None, &OwnMatchStats::default(), None, "", now_ms() - 40 * 86_400_000, "de_nuke", "competitive", "win", ME, &[player(A, "")]).unwrap();
         store.record("de_nuke", "competitive", "win", ME, vec![player(A, "")]);
         store.purge_older_than(30.0);
         assert_eq!(store.summary_for(ME, A).all.played, 1);

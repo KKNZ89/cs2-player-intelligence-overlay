@@ -50,6 +50,34 @@ pub struct GsiSummary {
     pub kd: Option<f64>,
     pub mvps: Option<i64>,
     pub score: Option<i64>,
+    /// The side that won each finished round, in order: "CT", "T", or "" when CS2's reason is not known.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub round_wins: Vec<String>,
+    /// `map.round_wins` as CS2 sent it ("1:ct_win_elimination 2:t_win_bomb ..."), for the log.
+    #[serde(skip)]
+    pub round_wins_raw: String,
+}
+
+/// `map.round_wins` ({"1": "ct_win_elimination", "2": "t_win_bomb", ...}) as winning sides from round 1 on;
+/// only an unbroken run from round 1 can be matched to the score.
+fn round_wins(map: &Value) -> Vec<String> {
+    let Some(list) = map["round_wins"].as_object() else { return Vec::new() };
+    let mut rounds: Vec<(i64, &str)> = list.iter().filter_map(|(round, reason)| Some((round.parse().ok()?, reason.as_str()?))).collect();
+    rounds.sort_by_key(|(round, _)| *round);
+    rounds
+        .iter()
+        .enumerate()
+        .take_while(|(i, (round, _))| *round == *i as i64 + 1)
+        .map(|(_, (_, reason))| {
+            if reason.starts_with("ct_") {
+                "CT".to_string()
+            } else if reason.starts_with("t_") {
+                "T".to_string()
+            } else {
+                String::new()
+            }
+        })
+        .collect()
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -202,6 +230,11 @@ impl GsiState {
             },
             mvps: number("mvps"),
             score: number("score"),
+            round_wins: if in_match { round_wins(map) } else { Vec::new() },
+            round_wins_raw: map["round_wins"]
+                .as_object()
+                .map(|list| list.iter().map(|(round, reason)| format!("{round}:{}", reason.as_str().unwrap_or("?"))).collect::<Vec<_>>().join(" "))
+                .unwrap_or_default(),
         }
     }
 }
@@ -261,6 +294,16 @@ mod tests {
         assert_eq!(other.observed.as_ref().unwrap().steam_id, "76561198000000001");
         assert_eq!(other.self_team, "");
         assert!(!state.summary(2000 + CONNECTED_FOR_MS).connected, "silence disconnects");
+        assert!(other.round_wins.is_empty(), "no round history without the map_round_wins component");
+    }
+
+    #[test]
+    fn round_wins_become_winning_sides_in_order() {
+        let mut state = GsiState::new(TOKEN.into());
+        let mut body = payload(TOKEN, ME, "live");
+        body["map"]["round_wins"] = json!({ "2": "t_win_bomb", "1": "ct_win_elimination", "3": "ct_win_defuse", "4": "something_new", "6": "t_win_time" });
+        post(&mut state, body, 1000);
+        assert_eq!(state.summary(1000).round_wins, ["CT", "T", "CT", ""], "round 5 is missing, so round 6 cannot be placed");
         assert_eq!(state.summary(2000 + CONNECTED_FOR_MS).match_stats_status, "disconnected");
     }
 }

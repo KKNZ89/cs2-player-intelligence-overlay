@@ -101,6 +101,7 @@ function renderHero(state) {
   const win = winChance(state.prediction);
   setText(els.winValue, win.text);
   setText(els.winDetail, win.detail);
+  els.heroWin.title = win.title;
   setClass(els.winValue, `win-value ${win.percent === null ? '' : win.percent >= 55 ? 'good' : win.percent <= 45 ? 'bad' : 'even'}`);
   els.winRing.style.strokeDashoffset = String(RING * (1 - (win.percent ?? 0) / 100));
   els.winRing.parentElement.setAttribute('class', `ring side-${match.side || 'none'}`);

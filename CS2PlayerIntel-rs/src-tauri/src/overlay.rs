@@ -1,5 +1,6 @@
 //! The overlay window over CS2 (borderless windowed). It is shown while the hotkey has pinned it or while
-//! Tab is held in CS2 (Ctrl+Tab: expanded view), and becomes clickable while CS2's Esc menu is open.
+//! Tab is held in CS2 (Ctrl+Tab: expanded view), and becomes clickable while CS2's Esc menu is open. It
+//! hides while CS2 is not in front (another window is, CS2 is minimised, or CS2 has closed).
 //! Only the explicit mouse-navigation shortcut allows it to take focus from the game.
 
 use crate::settings::Settings;
@@ -22,6 +23,9 @@ pub struct OverlayState {
     pub menu_open: bool,
     /// Explicitly requested mouse navigation, independent of CS2's menu reports.
     pub mouse_navigation: bool,
+    /// CS2 is not in front: another app's window is, or CS2 is minimised or closed. The overlay then stays
+    /// out of the way, even when pinned (mouse navigation, asked for explicitly, still shows it).
+    pub game_hidden: bool,
     pub content_height: f64,
     /// Width the side panel needs for the chosen columns plus readable names (reported by the page).
     pub side_width: f64,
@@ -29,13 +33,25 @@ pub struct OverlayState {
 
 impl Default for OverlayState {
     fn default() -> Self {
-        Self { pinned: false, key_view: KeyView::Hidden, menu_open: false, mouse_navigation: false, content_height: 560.0, side_width: 500.0 }
+        Self {
+            pinned: false,
+            key_view: KeyView::Hidden,
+            menu_open: false,
+            mouse_navigation: false,
+            game_hidden: false,
+            content_height: 560.0,
+            side_width: 500.0,
+        }
     }
 }
 
 impl OverlayState {
     pub fn view(&self) -> &'static str {
-        if self.mouse_navigation || self.menu_open {
+        if self.mouse_navigation {
+            "interactive"
+        } else if self.game_hidden {
+            "hidden"
+        } else if self.menu_open {
             "interactive"
         } else if self.key_view == KeyView::Expanded {
             "expanded"
@@ -285,6 +301,11 @@ mod tests {
         assert_eq!(state.view(), "expanded");
         state.menu_open = true;
         assert_eq!(state.view(), "interactive");
+        // Another window in front of CS2 (or CS2 minimised or closed) hides even a pinned overlay.
+        state.game_hidden = true;
+        assert_eq!(state.view(), "hidden");
+        state.mouse_navigation = true;
+        assert_eq!(state.view(), "interactive", "mouse navigation is asked for explicitly");
     }
 
     #[test]

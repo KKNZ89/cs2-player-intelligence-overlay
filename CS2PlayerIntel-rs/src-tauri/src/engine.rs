@@ -8,7 +8,7 @@ use crate::console_roster::{ConsoleTailer, Poll};
 use crate::diagnostics::{Diagnostics, Level};
 use crate::gsi::{GsiState, GsiSummary, Receipt};
 use crate::gsi_config;
-use crate::key_watcher::{KeyEvent, KeyWatcher};
+use crate::key_watcher::{Front, KeyEvent, KeyWatcher};
 use crate::match_controller::MatchState;
 use crate::model::{now_ms, now_secs};
 use crate::overlay::{self, KeyView, OverlayState};
@@ -285,12 +285,10 @@ impl Engine {
         }
     }
 
-    /// A config with another token or port is rewritten so CS2 keeps reporting.
+    /// A config with another token, port or data list is rewritten so CS2 keeps reporting what the app reads.
     fn refresh_gsi_config(&self) {
         match gsi_config::refresh_installed(&self.settings().cs2_cfg_path, crate::gsi::PORT, &self.gsi_token()) {
-            Ok(Some(_)) => {
-                self.misc.lock().unwrap().gsi_config_notice = "GSI config updated with this install's private token. Restart CS2 if it is running.".into()
-            }
+            Ok(Some(_)) => self.misc.lock().unwrap().gsi_config_notice = "GSI config updated. Restart CS2 if it is running.".into(),
             Ok(None) => {}
             Err(error) => self.log("gsi-refresh", &error),
         }
@@ -471,7 +469,14 @@ impl Engine {
     /// Applies the latest GSI state to the match.
     pub fn match_update(self: &Arc<Self>) {
         let g = self.gsi_summary();
-        let effects = self.state.lock().unwrap().update(&g);
+        let (effects, rounds) = {
+            let mut state = self.state.lock().unwrap();
+            let effects = state.update(&g);
+            (effects, state.round_report(&g))
+        };
+        if let Some(line) = rounds {
+            self.diagnostics.log(Level::Info, "rounds", &line);
+        }
         if effects.ended {
             self.diagnostics.log(Level::Info, "match", "ended; its players stay listed until the next match starts");
         }
@@ -1131,6 +1136,19 @@ impl Engine {
         self.changed();
     }
 
+    /// While CS2 is not in front (or not running), the overlay stays hidden, even when pinned.
+    fn set_game_hidden(&self, hidden: bool) {
+        {
+            let mut overlay = self.overlay.lock().unwrap();
+            if overlay.game_hidden == hidden {
+                return;
+            }
+            overlay.game_hidden = hidden;
+        }
+        self.apply_overlay(true);
+        self.changed();
+    }
+
     /// CS2's Esc menu frees the cursor; the overlay then becomes clickable (only during a match).
     pub fn set_menu_open(&self, open: bool) {
         let allowed = self.settings().esc_interactive && self.state.lock().unwrap().active() && (!open || crate::key_watcher::is_cs2_foreground());
@@ -1168,9 +1186,17 @@ impl Engine {
                 let open = self.overlay.lock().unwrap().menu_open;
                 self.set_menu_open(!open);
             }
-            KeyEvent::Foreground(false) => self.set_menu_open(false),
-            // Back in the game: profile windows opened from the overlay stop staying on top of it.
-            KeyEvent::Foreground(true) => crate::providers::scraper::release_profile_windows(&self.app),
+            KeyEvent::Foreground(Front::Other) => {
+                self.set_menu_open(false);
+                self.set_game_hidden(true);
+            }
+            KeyEvent::Foreground(Front::Own) => self.set_menu_open(false),
+            // Back in the game: the overlay may show again, and profile windows opened from it stop
+            // staying on top of it.
+            KeyEvent::Foreground(Front::Cs2) => {
+                self.set_game_hidden(false);
+                crate::providers::scraper::release_profile_windows(&self.app);
+            }
             KeyEvent::Scoreboard(open) => self.on_scoreboard(open),
         }
     }
@@ -1340,27 +1366,31 @@ impl Engine {
             .collect()
     }
 
-    /// The key watcher runs while CS2 runs and either hold-Tab or the Esc-menu overlay is enabled.
+    /// The watcher runs while CS2 runs, to hide the overlay when CS2 is not in front; it reads keys only
+    /// when hold-Tab, the Esc-menu overlay or scoreboard colours are enabled. While CS2 is closed the
+    /// overlay stays hidden (until CS2 is known to be running or not, nothing is hidden).
     pub fn update_key_watcher(self: &Arc<Self>) {
         let s = self.settings();
         let hold_tab = s.overlay_trigger == "hold-tab";
-        let running = self.misc.lock().unwrap().cs2_running == Some(true);
-        let wanted = cfg!(windows) && running && (hold_tab || s.esc_interactive || s.scoreboard_colours);
+        let keys = hold_tab || s.esc_interactive || s.scoreboard_colours;
+        let known = self.misc.lock().unwrap().cs2_running;
+        let wanted = cfg!(windows) && known == Some(true);
         let mut watcher = self.key_watcher.lock().unwrap();
         if !wanted {
             let stopped = watcher.take();
             drop(watcher);
             drop(stopped);
             self.set_menu_open(false);
+            self.set_game_hidden(known == Some(false));
             return;
         }
         match watcher.as_ref() {
-            Some(running) => running.set_hold_tab(hold_tab),
+            Some(running) => running.set_hold_tab(hold_tab, keys),
             None => {
                 #[cfg(windows)]
                 {
                     let weak = Arc::downgrade(self);
-                    *watcher = Some(KeyWatcher::start(hold_tab, move |event| {
+                    *watcher = Some(KeyWatcher::start(hold_tab, keys, move |event| {
                         if let Some(engine) = weak.upgrade() {
                             engine.on_key(event);
                         }

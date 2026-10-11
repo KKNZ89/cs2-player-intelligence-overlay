@@ -236,18 +236,86 @@ export function history(player, { compact = false } = {}) {
   return '<span class="muted" title="Not in this app\'s records; Leetify history unavailable">Not seen</span>';
 }
 
-// The win estimate is this app's own unvalidated guess from average Premier rating, so it is labelled
-// and shown modestly.
+const WIN_FACTORS = {
+  premier: ['Premier', v => Math.round(v).toLocaleString('en-US')],
+  faceitElo: ['FACEIT Elo', v => Math.round(v).toLocaleString('en-US')],
+  mapRank: ['Skill group on this map', v => v.toFixed(1)],
+  wingmanRank: ['Wingman rank', v => v.toFixed(1)],
+  hltv: ['HLTV rating', v => v.toFixed(2)],
+  leetifyRating: ['Leetify rating', v => `${v > 0 ? '+' : ''}${v.toFixed(2)}`],
+  kd: ['K/D', v => v.toFixed(2)],
+  adr: ['ADR', v => v.toFixed(1)],
+  winRate: ['Win %', v => `${Math.round(v)}%`]
+};
+const WIN_NOTE = "This app's own rough estimate, not a provider metric and not validated. Missing stats are left out, never counted as zero.";
+
+// The win estimate is this app's own unvalidated guess from every stat available per player and, during
+// the match, the live score and your own kills and deaths, so it is labelled and shown modestly. How it has
+// done on your recorded matches is shown with it.
 export function winChance(prediction = {}) {
-  if (prediction.status === 'ffa') return { percent: null, text: '—', detail: 'Free-for-all: no teams to compare' };
+  if (prediction.status === 'ffa') return { percent: null, text: '—', detail: 'Free-for-all: no teams to compare', title: WIN_NOTE };
   if (prediction.status === 'ok') {
     const percent = Math.round(prediction.probability * 100);
-    return { percent, text: `${percent}%`, detail: `Avg Premier ${Math.round(prediction.teamAverage).toLocaleString('en-US')} vs ${Math.round(prediction.enemyAverage).toLocaleString('en-US')}` };
+    const factors = (prediction.factors || []).filter(f => WIN_FACTORS[f.key]);
+    const live = prediction.live;
+    const tie = isNum(prediction.tie) && prediction.tie >= 0.01 ? `tie ${Math.round(prediction.tie * 100)}%` : '';
+    const known = (prediction.teamRated ?? 0) + (prediction.enemyRated ?? 0);
+    const places = prediction.teamSize + prediction.enemySize + (prediction.openSlots ?? 0);
+    const detail = [
+      live && `Score ${live.ours}:${live.theirs}`,
+      tie,
+      factors.length && `from ${factors.map(f => WIN_FACTORS[f.key][0]).join(', ')}`,
+      `${known}/${places} players`,
+      prediction.confidence && `${prediction.confidence} confidence`
+    ].filter(Boolean).join(' · ');
+    const lines = factors.map(f => {
+      const [label, show] = WIN_FACTORS[f.key];
+      return `${label}: ${show(f.team)} vs ${show(f.enemy)} (${f.teamCount} vs ${f.enemyCount} players)`;
+    });
+    if (live && isNum(prediction.preMatch)) lines.push(`Before the score: ${Math.round(prediction.preMatch * 100)}%. The live score and your own K/D this match move it.`);
+    if (ECONOMY[prediction.economy]) lines.push(ECONOMY[prediction.economy]);
+    const sides = sideLine(prediction.side);
+    if (sides) lines.push(sides);
+    if (live && !live.roundsKnown) lines.push('CS2 has not sent round-by-round results, so the rounds so far count for less. Restart CS2 to load the updated GSI config.');
+    if (prediction.unconfirmed) lines.push(`${plural(prediction.unconfirmed, 'player')} counted partly: side or place in this match not confirmed.`);
+    if (prediction.openSlots) lines.push(`${plural(prediction.openSlots, 'place')} with nobody known counted as the lobby average.`);
+    lines.push(calibrationLine(prediction.calibration));
+    lines.push(WIN_NOTE);
+    return { percent, text: `${percent}%`, detail, title: `Your team vs opponents\n${lines.join('\n')}` };
   }
   if (prediction.status === 'not-enough-data') {
-    return { percent: null, text: '—', detail: `Needs Premier ratings for 2+ players per team (${prediction.teamRated ?? 0} vs ${prediction.enemyRated ?? 0})` };
+    return { percent: null, text: '—', detail: `Needs stats for 2+ players per team (${prediction.teamRated ?? 0} vs ${prediction.enemyRated ?? 0})`, title: WIN_NOTE };
   }
-  return { percent: null, text: '—', detail: 'Mark teammates and opponents to estimate' };
+  return { percent: null, text: '—', detail: 'Mark teammates and opponents to estimate', title: WIN_NOTE };
+}
+
+const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+const ECONOMY = {
+  'pistol-won': 'You won the pistol round: the next round strongly favours you (rifles against pistols).',
+  'pistol-lost': 'You lost the pistol round: the next round strongly favours the opponents.',
+  'converted-won': 'You won the pistol round and the next: the opponents are often still short of money.',
+  'converted-lost': 'The opponents won the pistol round and the next: your team is often still short of money.'
+};
+
+// How much the map favours a side, and which side you still have to play.
+function sideLine(side) {
+  if (!side || !isNum(side.ctRate)) return '';
+  const map = (side.map || '').replace(/^(de|cs|ar|dz)_/, '');
+  const name = map.charAt(0).toUpperCase() + map.slice(1);
+  const percent = Math.round(side.ctRate * 100);
+  const lean = percent > 50 ? 'CT-sided' : percent < 50 ? 'T-sided' : 'even';
+  const basis = side.recordedRounds ? `a rough figure adjusted by ${plural(side.recordedRounds, 'recorded round')}` : 'a rough figure';
+  const switchNote = side.afterHalf ? ` You play ${side.afterHalf} after half-time.` : '';
+  return `${name}: CT wins about ${percent}% of rounds between equal teams (${lean}; ${basis}).${switchNote}`;
+}
+
+// How the estimate has done on your recorded matches, which also tune it.
+function calibrationLine(c) {
+  if (!c?.matches) return 'Not yet checked against any recorded match; each finished match is used to check and tune it.';
+  const favourite = c.decided ? ` The favourite won ${c.favouriteWon} of ${c.decided} (${Math.round((c.favouriteWon / c.decided) * 100)}%).` : '';
+  const brier = isNum(c.brier) ? ` Brier score ${c.brier.toFixed(3)} (a coin flip scores 0.250; lower is better).` : '';
+  return `Checked against ${plural(c.matches, 'recorded match', 'recorded matches')}.${favourite}${brier}`;
 }
 
 const TEAMMATE_COLOURS = ['yellow', 'purple', 'green', 'blue', 'orange'];

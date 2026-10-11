@@ -4,12 +4,12 @@
 use crate::analysis;
 use crate::gsi::GsiSummary;
 use crate::lifecycle::{self, MatchLifecycle};
-use crate::match_history::{match_result, HistoryPlayer, MatchHistoryStore, Snapshot};
+use crate::match_history::{match_result, HistoryPlayer, MatchEstimate, MatchHistoryStore, Snapshot};
 use crate::model::Player;
 use crate::model::{is_steam_id, Candidate, SideSource};
 use crate::modes::{mode_info, team_locked, ModeInfo};
 use crate::player_data::PlayerData;
-use crate::prediction::predict;
+use crate::prediction::{predict, LiveInput};
 use crate::roster::RosterState;
 use crate::roster_input::parse_roster_input;
 use crate::team_inference::{frequent_partners, infer_sides};
@@ -24,6 +24,10 @@ struct Current {
     mode: String,
     self_id: String,
     self_team: String,
+    /// Your side ("CT" or "T") in the first half, for the side you play in each round.
+    start_side: String,
+    /// Rounds played and round results received when the last round report was logged.
+    reported: (i64, usize),
 }
 
 /// What the engine must do after a GSI update.
@@ -81,6 +85,22 @@ fn snapshots(player: &Player) -> Vec<Snapshot> {
         .collect()
 }
 
+/// Your first-half side, worked out from your side during a round (not between rounds or at half-time,
+/// when CS2 may still show the side of the round just played).
+fn start_side(g: &GsiSummary) -> Option<String> {
+    let half = crate::prediction::half_length(&g.mode)?;
+    let (ct, t) = (g.score_ct?, g.score_t?);
+    if g.phase != "live" || !matches!(g.round_phase.as_str(), "freezetime" | "live") || !matches!(g.self_team.as_str(), "CT" | "T") {
+        return None;
+    }
+    let other = if g.self_team == "CT" { "T" } else { "CT" };
+    match ct + t {
+        played if played < half => Some(g.self_team.clone()),
+        played if played < 2 * half => Some(other.to_string()),
+        _ => None,
+    }
+}
+
 fn snapshot(g: &GsiSummary) -> lifecycle::Snapshot {
     lifecycle::Snapshot { connected: g.connected, map: g.map.clone(), mode: g.mode.clone(), phase: g.phase.clone(), round: g.round }
 }
@@ -104,6 +124,30 @@ impl MatchState {
 
     pub fn active(&self) -> bool {
         self.lifecycle.active
+    }
+
+    /// The map, the live score from your side's view, your side, the round results, and your own kills and
+    /// deaths, for the win estimate.
+    fn live_input(&self, g: &GsiSummary) -> LiveInput {
+        let (ours, theirs) = match self.current.self_team.as_str() {
+            "CT" => (g.score_ct, g.score_t),
+            "T" => (g.score_t, g.score_ct),
+            _ => (None, None),
+        };
+        let mode = if self.current.mode.is_empty() { g.mode.clone() } else { self.current.mode.clone() };
+        let map = if self.current.map.is_empty() { g.map.clone() } else { self.current.map.clone() };
+        LiveInput {
+            mode,
+            map,
+            ours,
+            theirs,
+            kills: g.kills,
+            deaths: g.deaths,
+            side: self.current.self_team.clone(),
+            start_side: self.current.start_side.clone(),
+            round_over: matches!(g.phase.as_str(), "intermission" | "gameover") || g.round_phase == "over",
+            round_wins: g.round_wins.clone(),
+        }
     }
 
     pub fn mode(&self, g: &GsiSummary) -> ModeInfo {
@@ -139,6 +183,9 @@ impl MatchState {
             keep(&g.mode, &mut self.current.mode);
             keep(&g.self_steam_id, &mut self.current.self_id);
             keep(&g.self_team, &mut self.current.self_team);
+            if self.current.start_side.is_empty() {
+                self.current.start_side = start_side(g).unwrap_or_default();
+            }
         }
         self.roster.self_id = g.self_steam_id.clone();
         self.roster.self_name = g.self_name.clone();
@@ -224,9 +271,13 @@ impl MatchState {
     }
 
     fn record_finished(&mut self, g: &GsiSummary) {
-        let players = self
-            .players
-            .list()
+        let all = self.players.list();
+        // The estimate from the players' stats alone (no score or K/D from this match), kept to check it
+        // against the result.
+        let stats_only = LiveInput { mode: self.current.mode.clone(), map: self.current.map.clone(), ..LiveInput::default() };
+        let estimate = predict(&all, &self.mode(g), &stats_only, &self.history.calibration());
+        let estimate = estimate.pre_match.zip(estimate.gap).map(|(chance, gap)| MatchEstimate { chance, gap });
+        let players = all
             .into_iter()
             .filter(|p| !p.is_self)
             .map(|p| HistoryPlayer { snapshots: snapshots(&p), steam_id: p.steam_id, side: p.side, name: p.name })
@@ -235,7 +286,60 @@ impl MatchState {
         let started_at = Some(self.current.started_at).filter(|t| *t > 0);
         // Your own line from CS2 at the end of the match (kept from your last report while spectating).
         let own = crate::match_history::OwnMatchStats { kills: g.kills, deaths: g.deaths, assists: g.assists, mvps: g.mvps, score: g.score };
-        self.history.record_match(started_at, &own, &self.current.map, &self.current.mode, result, &self.current.self_id, players);
+        // Which side won each round ('C', 'T', '?'), for how often CT wins on this map.
+        let rounds: String = g
+            .round_wins
+            .iter()
+            .map(|side| match side.as_str() {
+                "CT" => 'C',
+                "T" => 'T',
+                _ => '?',
+            })
+            .collect();
+        self.history.record_match(started_at, &own, estimate, &rounds, &self.current.map, &self.current.mode, result, &self.current.self_id, players);
+    }
+
+    /// One log line whenever a round ends or CS2's round results change: the score, your sides, the round
+    /// results and how the win estimate read them, so the round-by-round data can be checked after a real
+    /// match. CS2's raw results are added after the first round and whenever they do not match the score.
+    pub fn round_report(&mut self, g: &GsiSummary) -> Option<String> {
+        if !self.lifecycle.active || !self.mode(g).teams {
+            return None;
+        }
+        let (ct, t) = (g.score_ct?, g.score_t?);
+        let played = ct + t;
+        let key = (played, g.round_wins.len());
+        if played == 0 || key == self.current.reported {
+            return None;
+        }
+        self.current.reported = key;
+        let live = self.live_input(g);
+        let complete = g.round_wins.len() as i64 == played && g.round_wins.iter().all(|side| !side.is_empty());
+        let or_unknown = |s: &str| if s.is_empty() { "?".to_string() } else { s.to_string() };
+        let results: Vec<String> = g.round_wins.iter().map(|side| or_unknown(side)).collect();
+        let mut line = format!(
+            "round {played} ({}): CT {ct} T {t}, you {} (first half {}), CS2 round results {}/{played} {} [{}]",
+            g.round_phase,
+            or_unknown(&live.side),
+            or_unknown(&live.start_side),
+            g.round_wins.len(),
+            if complete { "complete" } else { "INCOMPLETE" },
+            results.join(" ")
+        );
+        let prediction = predict(&self.players.list(), &self.mode(g), &live, &self.history.calibration());
+        if let Some(chance) = prediction.probability {
+            line.push_str(&format!(", estimate {:.0}%", chance * 100.0));
+            if let Some(economy) = prediction.economy {
+                line.push_str(&format!(" ({economy})"));
+            }
+            if let Some(view) = prediction.live.as_ref().filter(|view| !view.rounds_known) {
+                line.push_str(&format!(", rounds not placed at {}:{}", view.ours, view.theirs));
+            }
+        }
+        if played == 1 || !complete {
+            line.push_str(&format!(", raw: {}", if g.round_wins_raw.is_empty() { "none (map_round_wins not sent)" } else { &g.round_wins_raw }));
+        }
+        Some(line)
     }
 
     /// Applies likely sides from party links; never touches sides that are certain.
@@ -361,7 +465,7 @@ impl MatchState {
         self.infer_teams(g);
         let self_id = if g.self_steam_id.is_empty() { self.current.self_id.clone() } else { g.self_steam_id.clone() };
         let players = self.players.list();
-        let prediction = predict(&players, &self.mode(g));
+        let prediction = predict(&players, &self.mode(g), &self.live_input(g), &self.history.calibration());
         let partners = frequent_partners(&players);
         let analyses = analysis::analyze_all(&players, analysis::Options { min_matches: self.min_sample_matches, now_ms: crate::model::now_ms() });
         let strongest = analysis::strongest(&players);
@@ -500,6 +604,7 @@ mod tests {
         assert!(!m.active());
         let summary = m.history.summary_for(ME, &id(1));
         assert_eq!((summary.together.played, summary.together.won), (1, 1));
+        assert_eq!(m.history.calibration().matches, 0, "no estimate without stats for both teams");
         assert_eq!(m.status(&over)["label"], "Match over");
         assert!(m.players.get(&id(1)).is_some(), "the last match's players stay after it ends");
         assert_eq!(m.view(&over)["lastMatch"]["map"], "de_mirage");
@@ -511,6 +616,85 @@ mod tests {
         assert!(m.players.get(&id(1)).is_none(), "the next match starts empty");
         assert!(m.view(&live("warmup"))["lastMatch"].is_null());
         assert_eq!(m.status(&GsiSummary::default())["state"], "offline");
+    }
+
+    #[test]
+    fn finished_matches_keep_the_stats_only_estimate() {
+        let (mut m, _dir) = state();
+        m.update(&live("live"));
+        m.roster.last_roster = (1..10).map(coplay).collect();
+        m.merge(&live("live"));
+        for n in 0..10 {
+            let steam_id = if n == 0 { ME.to_string() } else { id(n) };
+            let mut data = serde_json::Map::new();
+            data.insert("premier".into(), 15000.into());
+            m.players.apply_cached(&steam_id, "leetify", crate::model::ProviderResult::ok(data));
+            if n > 0 {
+                m.players.set_side(&steam_id, if n < 5 { "team" } else { "enemy" }).unwrap();
+            }
+        }
+        // A big score and K/D of your own: neither belongs in the estimate kept for checking.
+        let mut over = live("gameover");
+        (over.score_ct, over.score_t, over.kills, over.deaths) = (Some(13), Some(2), Some(30), Some(5));
+        m.update(&over);
+        let recorded = &m.history.matches(ME, 1, 0)["matches"][0];
+        assert!((recorded["predicted"].as_f64().unwrap() - 0.5).abs() < 0.001, "{recorded}");
+        assert_eq!(m.history.calibration().matches, 1);
+    }
+
+    #[test]
+    fn your_first_half_side_and_the_rounds_reach_the_estimate() {
+        let in_round = |team: &str, ct: i64, t: i64| GsiSummary {
+            round_phase: "live".into(),
+            self_team: team.into(),
+            score_ct: Some(ct),
+            score_t: Some(t),
+            round_wins: ["CT", "T"].iter().cycle().take((ct + t) as usize).map(|s| s.to_string()).collect(),
+            ..live("live")
+        };
+        let (mut m, _dir) = state();
+        m.update(&in_round("CT", 3, 2));
+        m.update(&in_round("T", 8, 7));
+        let input = m.live_input(&in_round("T", 8, 7));
+        assert_eq!((input.side.as_str(), input.start_side.as_str(), input.round_wins.len()), ("T", "CT", 15), "the first side seen is kept");
+        assert!(!input.round_over);
+        // Starting the app in the second half: the first-half side is the other one.
+        let (mut late, _dir) = state();
+        late.update(&in_round("T", 8, 7));
+        assert_eq!(late.live_input(&in_round("T", 8, 7)).start_side, "CT");
+        // Between rounds the side may still be the last round's, so it is not used to work out the start.
+        let (mut between, _dir) = state();
+        between.update(&GsiSummary { round_phase: "over".into(), ..in_round("CT", 12, 0) });
+        assert_eq!(between.live_input(&in_round("CT", 12, 0)).start_side, "");
+        // The round results are kept with the match for the map's side figures.
+        let mut over = GsiSummary { phase: "gameover".into(), ..in_round("T", 13, 9) };
+        over.round_phase = "over".into();
+        m.roster.last_roster = vec![coplay(1)];
+        m.merge(&over);
+        m.update(&over);
+        assert_eq!(m.history.calibration().map_rounds[&crate::prediction::map_key("competitive", "de_mirage")].rounds, 22);
+    }
+
+    #[test]
+    fn each_round_is_reported_once_for_the_log() {
+        let (mut m, _dir) = state();
+        let mut g = GsiSummary { round_phase: "over".into(), score_ct: Some(0), score_t: Some(0), ..live("live") };
+        m.update(&g);
+        assert_eq!(m.round_report(&g), None, "nothing before the first round ends");
+        (g.score_ct, g.round_wins, g.round_wins_raw) = (Some(1), vec!["CT".into()], "1:ct_win_elimination".into());
+        let first = m.round_report(&g).unwrap();
+        assert!(first.contains("CT 1 T 0") && first.contains("1/1 complete [CT]") && first.contains("raw: 1:ct_win_elimination"), "{first}");
+        assert_eq!(m.round_report(&g), None, "the same state is not reported twice");
+        // The score moved on but the results did not (yet): reported as incomplete with the raw data.
+        g.score_t = Some(1);
+        let behind = m.round_report(&g).unwrap();
+        assert!(behind.contains("1/2 INCOMPLETE") && behind.contains("raw:"), "{behind}");
+        g.round_wins.push("T".into());
+        let caught_up = m.round_report(&g).unwrap();
+        assert!(caught_up.contains("2/2 complete [CT T]") && !caught_up.contains("raw:"), "{caught_up}");
+        let mut old_config = GsiSummary { score_ct: Some(2), score_t: Some(1), ..live("live") };
+        old_config.round_phase = "over".into();
+        assert!(m.round_report(&old_config).unwrap().contains("none (map_round_wins not sent)"));
     }
 
     #[test]

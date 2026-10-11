@@ -167,7 +167,7 @@ function render(state) {
   setText(byId('ovRound'), roundText(g));
   const win = winChance(state.prediction);
   setText(byId('ovWinValue'), win.text);
-  byId('ovWinValue').title = win.detail;
+  byId('ovWinValue').title = `${win.detail}\n\n${win.title}`;
   setClass(byId('ovWinValue'), win.percent === null ? '' : win.percent >= 55 ? 'good' : win.percent <= 45 ? 'bad' : 'even');
   byId('ovWinBar').style.width = `${win.percent ?? 50}%`;
   setClass(byId('ovWinBar').parentElement, `win-bar thin side-${match.side || 'none'}${win.percent === null ? ' unknown' : ''}`);

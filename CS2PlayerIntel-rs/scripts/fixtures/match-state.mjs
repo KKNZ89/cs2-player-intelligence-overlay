@@ -1,7 +1,19 @@
 // A realistic, entirely fictional app state for screenshots and visual checks: a Premier match on
 // Mirage with ten players and the mix of available and missing provider data seen in real lobbies.
 // The win estimate as the Rust backend computes it for these players (see src-tauri/src/prediction.rs).
-const PREDICTION = { status: 'ok', teamSize: 4, enemySize: 3, inferredEnemies: [], teamRated: 4, enemyRated: 3, teamAverage: 17850, enemyAverage: 19726.666666666668, probability: 0.25344997280212067 };
+const PREDICTION = {
+  status: 'ok', teamSize: 4, enemySize: 3, inferredEnemies: [], teamRated: 4, enemyRated: 3, unconfirmed: 0, openSlots: 3,
+  probability: 0.46, tie: 0.09, preMatch: 0.33, confidence: 'medium',
+  live: { ours: 7, theirs: 5, target: 13, roundsKnown: true },
+  side: { map: 'de_mirage', ctRate: 0.51, recordedRounds: 0, current: 'CT', afterHalf: 'T' },
+  factors: [
+    { key: 'premier', team: 17850, enemy: 19726.67, teamCount: 4, enemyCount: 3 },
+    { key: 'faceitElo', team: 1593, enemy: 2010, teamCount: 4, enemyCount: 3 },
+    { key: 'mapRank', team: 13.5, enemy: 14.33, teamCount: 4, enemyCount: 3 },
+    { key: 'kd', team: 1.16, enemy: 1.31, teamCount: 4, enemyCount: 3 }
+  ],
+  calibration: { matches: 38, decided: 35, favouriteWon: 22, brier: 0.234, slope: 3.7 }
+};
 
 const now = Date.UTC(2026, 9, 8, 7, 30);
 const names = ['You', 'Kestrel', 'nova', 'Brightside', 'mxlk', 'ZeroDay', 'Halcyon', 'r1ft', 'Paxton', 'Lumen'];

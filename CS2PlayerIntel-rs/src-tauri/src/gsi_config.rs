@@ -98,6 +98,7 @@ pub fn config_content(port: u16, token: &str) -> String {
   {{
     "provider" "1"
     "map" "1"
+    "map_round_wins" "1"
     "round" "1"
     "player_id" "1"
     "player_match_stats" "1"
@@ -141,6 +142,7 @@ mod tests {
         assert_eq!(refresh_installed(&cfg, 31982, "a").unwrap(), None, "never creates a config");
         let file = install(&cfg, 31982, "a").unwrap();
         assert!(std::fs::read_to_string(&file).unwrap().contains(r#""token" "a""#));
+        assert!(std::fs::read_to_string(&file).unwrap().contains(r#""map_round_wins" "1""#), "round-by-round results for the win estimate");
         assert_eq!(refresh_installed(&cfg, 31982, "a").unwrap(), None, "an up-to-date config is left alone");
         assert!(refresh_installed(&cfg, 31982, "b").unwrap().is_some());
         assert!(std::fs::read_to_string(&file).unwrap().contains(r#""token" "b""#));

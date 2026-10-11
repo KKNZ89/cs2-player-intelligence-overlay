@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.5
+
+- The overlay hides while CS2 is not in front: when you switch to another window, minimise CS2 or close it, even when it is pinned. It comes back when you return to CS2. The app's own windows (the clickable overlay, profiles opened over the game) don't hide it.
+- The win estimate uses every stat known per player, not only Premier. Ratings (Premier, FACEIT Elo or level, the Competitive skill group on this map, the Wingman rank) set a player's level, and the rating matchmaking uses in the current mode counts most. Form (HLTV and Leetify ratings, K/D, ADR, win rate) shifts a player up or down from that level instead of standing in for it, and form from few matches counts less. Missing stats are left out rather than counted as zero, and a player with no known level counts as the lobby's level. It shows which stats it used and a confidence; hover it to see each stat for both teams.
+- Teams are always counted at full size: places with nobody known count as the lobby average, and players whose side was inferred or who come only from Steam's recently played list count partly. Hover the estimate to see how many.
+- During Competitive, Premier and Wingman matches the rest of the match is played out round by round (the rounds each side still needs, the chance of a tie, and Premier overtime). Each round accounts for the economy (the pistol round's winner usually takes the next round and often the one after; any round's winner keeps their weapons) and for how much the map favours CT or T on the side you play in that half. A lead built on a map's strong side therefore counts for less while the weak side is still to come. Rounds won count as evidence of strength by how unexpected they were, and your own kills and deaths this match count too. The estimate from stats alone stays the same while the match runs.
+- The GSI config now asks CS2 for round-by-round results (which side won each round). An installed config is updated when the app starts; restart CS2 to load it. Until then the estimate uses the score alone, counts the rounds for less, and says so when you hover it.
+- Each map's CT or T lean starts from a rough figure and moves towards the rounds recorded on that map in your matches (Wingman counted separately).
+- Each finished match keeps the stats-only estimate (this app's own number) and which side won each round with its result. The hover text shows how often the favourite won and the Brier score, and the estimate's scale is refitted to your results as matches accumulate. History exports include the estimates.
+
 ## 1.0.4
 
 - With a Steam Web API key, profiles and bans for the whole lobby come from two Steam requests instead of two per player, so Steam's limits are reached far less often and avatars (used to read the scoreboard) arrive sooner. CS2 hours still take one request per player.
